@@ -43,7 +43,7 @@ env:
 
 jobs:
   test:
-    name: Сборка и тесты
+    name: Build and tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Кэш NuGet
+      - name: Cache NuGet
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
@@ -87,7 +87,7 @@ jobs:
         run: dotnet test backend/Pingboard.sln --no-build --logger "console;verbosity=normal"
 
   web:
-    name: SPA (типы + сборка)
+    name: SPA typecheck and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,31 +100,31 @@ jobs:
 
       # `npm ci` — ровно то же, что делает deploy/Dockerfile.web: сборка проверяет
       # тот же зафиксированный набор зависимостей, что уедет в образ.
-      - name: Зависимости
+      - name: Dependencies
         working-directory: frontend
         run: npm ci
 
-      - name: Типы
+      - name: Types
         working-directory: frontend
         run: npm run typecheck
 
       # Линтер ловит то, чего не видит `tsc`: в первую очередь правила хуков React
       # (`rules-of-hooks` — именно на этом раньше стоял `useState` после раннего возврата
       # в MonitorDetailPage), а также неиспользуемые импорты и забытые зависимости эффектов.
-      - name: Линтер
+      - name: Lint
         working-directory: frontend
         run: npm run lint
 
       # Юнит-тесты на чистые функции: разбор ProblemDetails и `retry-after`, политика
       # повторов (включая «ручная попытка не повторяется»), форматирование и состояние
       # монитора. DOM не нужен — тесты идут в окружении node.
-      - name: Тесты
+      - name: Tests
         working-directory: frontend
         run: npm test
 
       # Сборка с тем же build-arg, что использует dev-стенд: если ссылка на документацию
       # API ломает сборку или типы, это видно здесь, а не на стенде.
-      - name: Сборка SPA
+      - name: Build SPA
         working-directory: frontend
         env:
           VITE_API_DOCS_PATH: /scalar/v1
@@ -135,7 +135,7 @@ jobs:
       # которую минификатор вырезает по константному условию (frontend/src/lib/demo.ts);
       # если условие перестанет сворачиваться, пароль вернётся в прод-бандл — этот шаг
       # заметит регресс, потому что строки ищутся именно в собранном файле.
-      - name: Прод-сборка без демо-учётки
+      - name: Prod-build without demo credentials
         working-directory: frontend
         env:
           VITE_API_DOCS_PATH: ""
@@ -146,7 +146,7 @@ jobs:
             exit 1
           fi
 
-      - name: Аудит зависимостей
+      - name: Dependencies audit
         working-directory: frontend
         # Аудит не валит конвейер: уязвимость в транзитивной зависимости — это повод
         # обновить пакет, а не блокировка выката. Строка остаётся в логе для истории.
@@ -154,7 +154,7 @@ jobs:
         run: npm audit --audit-level=high
 
   manifests:
-    name: Манифесты k8s
+    name: k8s manifests validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -162,18 +162,25 @@ jobs:
       # На runner'е уже есть kubectl, то есть и kustomize — им рендерятся оба оверлея в один
       # каталог, а схемам Kubernetes их проверяет kubeconform (kubectl apply --dry-run=server
       # требует живого кластера, поэтому в CI используется оффлайн-валидатор схем).
-      - name: Рендер оверлеев
+      #
+      # ВАЖНО про место рендера: в контейнер действия смонтирован ТОЛЬКО каталог репозитория
+      # (`/github/workspace`). Файлы, положенные в `/tmp` на runner'е, внутри контейнера
+      # kubeconform не существуют — отсюда `lstat /tmp/rendered: no such file or directory`.
+      # Поэтому рендер идёт в `.rendered/` в корне репозитория (каталог в .gitignore),
+      # и путь внутри контейнера выглядит как `/.rendered`.
+      - name: Render kustomize overlays
         run: |
           kubectl version --client
-          mkdir -p /tmp/rendered
-          kubectl kustomize k8s/overlays/dev  > /tmp/rendered/dev.yaml
-          kubectl kustomize k8s/overlays/prod > /tmp/rendered/prod.yaml
-          echo "dev:  $(grep -c '^kind:' /tmp/rendered/dev.yaml) объектов"
-          echo "prod: $(grep -c '^kind:' /tmp/rendered/prod.yaml) объектов"
+          mkdir -p .rendered
+          kubectl kustomize k8s/overlays/dev  > .rendered/dev.yaml
+          kubectl kustomize k8s/overlays/prod > .rendered/prod.yaml
+          echo "dev:  $(grep -c '^kind:' .rendered/dev.yaml) объектов"
+          echo "prod: $(grep -c '^kind:' .rendered/prod.yaml) объектов"
           # Пустой или фрагментарный рендер должен валить конвейер здесь, а не превращаться
           # в «kubeconform нечего проверять».
-          test "$(grep -c '^kind:' /tmp/rendered/dev.yaml)" -ge 10
-          test "$(grep -c '^kind:' /tmp/rendered/prod.yaml)" -ge 10
+          test "$(grep -c '^kind:' .rendered/dev.yaml)" -ge 10
+          test "$(grep -c '^kind:' .rendered/prod.yaml)" -ge 10
+          ls -la .rendered
 
       # Валидируются ОТРЕНДЕРЕННЫЕ манифесты, а не исходные файлы. Причина — не стилистика:
       # рядом с манифестами лежат стратегические merge-патчи оверлеев (patch-api.yaml и др.),
@@ -181,15 +188,15 @@ jobs:
       # законный фрагмент, а не манифест. Схемная валидация исходного дерева падала именно
       # на них (и на kustomization.yaml, который вообще не ресурс Kubernetes). Рендер даёт
       # ровно то, что уедет в кластер: 12 объектов на оверлей.
-      - name: Валидация схем
+      - name: Schema validation
         uses: docker://ghcr.io/yannh/kubeconform:v0.7.0
         with:
           args: >-
             -strict -summary -output pretty
-            /tmp/rendered
+            /.rendered
 
   build-push:
-    name: Образ в GHCR
+    name: GHCR push
     runs-on: ubuntu-latest
     needs: test
     if: github.event_name != 'pull_request'
@@ -201,7 +208,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Вход в GHCR
+      - name: GHCR login
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -209,7 +216,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - id: meta
-        name: Метаданные образа
+        name: Image metadata
         uses: docker/metadata-action@v5
         with:
           # repository_owner может содержать заглавные буквы, а путь образа в GHCR — только
@@ -222,7 +229,7 @@ jobs:
             org.opencontainers.image.title=pingboard-api
             org.opencontainers.image.description=Pingboard: Api и Worker — один образ, две команды
 
-      - name: Сборка и публикация
+      - name: Build and publish api+worker
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -243,7 +250,7 @@ jobs:
       # Ссылка на документацию API включается здесь: этот же образ идёт и на dev-стенд VPS,
       # и в k3d-dev, где окружение Development (образ для Production собирается надстройкой
       # deploy/docker-compose.web-prod.yml с пустым значением).
-      - name: Сборка и публикация SPA
+      - name: Build and publish SPA
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -256,7 +263,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Что опубликовано
+      - name: Summary of published images
         run: |
           {
             echo "### Образы опубликованы"
@@ -281,7 +288,7 @@ jobs:
   # Почему секреты приложения, а не GitHub Secrets: значения попадают в .env на хосте,
   # а не в командную строку, и их видно в UI окружения — так проще менять без правки workflow.
   deploy:
-    name: Выкат на VPS
+    name: VPS publish
     runs-on: ubuntu-latest
     needs: build-push
     if: github.event_name == 'workflow_dispatch'
@@ -309,7 +316,7 @@ jobs:
           fi
           echo "Секреты на месте."
 
-      - name: Настроить SSH
+      - name: SSH config
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -319,7 +326,7 @@ jobs:
           chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Выкат
+      - name: Publish
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
