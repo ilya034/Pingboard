@@ -16,7 +16,7 @@ await using var host = WorkerHost.Build(
         // Период тика — конфигурация, а не константа в коде.
         services.AddOptions<WorkerOptions>()
             .Bind(configuration.GetSection(WorkerOptions.SectionName))
-            .Validate(o => o.TickSeconds > 0, "Worker__TickSeconds должен быть больше нуля")
+            .Validate(o => o.TickSeconds > 0, "Worker__TickSeconds must be greater than zero")
             .ValidateOnStart();
 
         services.AddSingleton<DueCheckWorker>();

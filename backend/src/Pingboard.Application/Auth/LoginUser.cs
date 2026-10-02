@@ -32,8 +32,8 @@ public sealed class LoginUser(
         if (user is null || !passwordMatches)
         {
             // В логе нет ни email, ни пароля: это PII, а логи уходят в stdout и собираются платформой (фактор XI).
-            logger.LogWarning("Неудачная попытка входа");
-            throw new InvalidCredentialsException("Неверный email или пароль.");
+            logger.LogWarning("Failed login attempt");
+            throw new InvalidCredentialsException("Invalid email or password.");
         }
 
         // Срок жизни токена берётся у выдачи: сценарий не угадывает его по своим часам.

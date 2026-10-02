@@ -27,7 +27,7 @@ public sealed class DueCheckWorker(
 
         // Логируем ровно те значения, которыми пользуется сценарий: батч и параллелизм
         // берутся из DueCheckOptions, а не из второго класса-двойника с теми же полями.
-        logger.LogInformation("Воркер запущен: тик {TickSeconds} c, батч {BatchSize}, параллелизм {MaxParallel}",
+        logger.LogInformation("Worker started: tick {TickSeconds} s, batch {BatchSize}, parallelism {MaxParallel}",
             workerOptions.Value.TickSeconds, checkOptions.Value.BatchSize, checkOptions.Value.MaxParallel);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -46,7 +46,7 @@ public sealed class DueCheckWorker(
             catch (Exception ex)
             {
                 // Тик упал — цикл живёт дальше: один плохой монитор не роняет мониторинг (фактор IX).
-                logger.LogWarning(ex, "Итерация проверок завершилась ошибкой");
+                logger.LogWarning(ex, "Check iteration failed");
             }
 
             // Пульс обновляем и после неудачной итерации: цикл жив, а факт «БД недоступна»
@@ -63,7 +63,7 @@ public sealed class DueCheckWorker(
             }
         }
 
-        logger.LogInformation("Воркер остановлен");
+        logger.LogInformation("Worker stopped");
     }
 
     /// <summary>
@@ -83,7 +83,7 @@ public sealed class DueCheckWorker(
             if (_heartbeatUnavailableLogged) return;
 
             _heartbeatUnavailableLogged = true;
-            logger.LogWarning(ex, "Не удалось записать файл-пульс {Path}: healthcheck воркера не сработает", path);
+            logger.LogWarning(ex, "Failed to write heartbeat file {Path}: worker healthcheck will not work", path);
         }
     }
 }

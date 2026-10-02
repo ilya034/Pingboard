@@ -61,16 +61,16 @@ public sealed class HttpProbeService(
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // Отменён именно таймаут проверки, а не остановка приложения.
-            return ProbeOutcome.Failure($"Таймаут {cfg.TimeoutMs} мс");
+            return ProbeOutcome.Failure($"Timeout {cfg.TimeoutMs} ms");
         }
         catch (HttpRequestException ex)
         {
-            logger.LogDebug(ex, "Проверка {Url} не удалась", url);
+            logger.LogDebug(ex, "Check for {Url} failed", url);
             return ProbeOutcome.Failure($"{ex.HttpRequestError}: {ex.Message}");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogDebug(ex, "Неожиданная ошибка проверки {Url}", url);
+            logger.LogDebug(ex, "Unexpected check error for {Url}", url);
             return ProbeOutcome.Failure(ex.Message);
         }
     }

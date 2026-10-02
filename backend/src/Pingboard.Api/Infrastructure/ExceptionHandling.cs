@@ -23,7 +23,7 @@ public static class ErrorHandling
                 context.RequestServices
                     .GetRequiredService<ILoggerFactory>()
                     .CreateLogger("Pingboard.Api.Unhandled")
-                    .LogError(exception, "Ошибка {Status} на {Path}", mapped.Status, context.Request.Path);
+                    .LogError(exception, "Error {Status} on {Path}", mapped.Status, context.Request.Path);
 
             // 401 без этого заголовка не соответствует RFC 9110/6750, и клиенты
             // (в том числе Swagger/Scalar) не понимают, какой схеме аутентифицироваться.

@@ -30,7 +30,7 @@ public sealed class RegisterUser(
         if (existing is not null)
             throw new ValidationFailedException(new Dictionary<string, string[]>
             {
-                [nameof(request.Email)] = ["Пользователь с таким email уже зарегистрирован."]
+                [nameof(request.Email)] = ["A user with this email is already registered."]
             });
 
         var user = User.Register(email, passwordHasher.Hash(request.Password!), timeProvider.GetUtcNow());
@@ -38,7 +38,7 @@ public sealed class RegisterUser(
         await users.AddAsync(user, ct);
         await unitOfWork.SaveChangesAsync(ct);
 
-        logger.LogInformation("Зарегистрирован пользователь {UserId}", user.Id);
+        logger.LogInformation("User registered {UserId}", user.Id);
 
         // Срок жизни токена берётся у выдачи: сценарий не угадывает его по своим часам.
         // Гонка двух регистраций на один email ловится на UNIQUE-индексе ux_users_email

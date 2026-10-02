@@ -10,6 +10,6 @@ namespace Pingboard.Application.Composition;
 internal sealed class MissingCurrentUser : ICurrentUser
 {
     public Guid UserId => throw new InvalidOperationException(
-        "ICurrentUser не сконфигурирован: в Api его регистрирует JwtUserIdProvider (claim sub), " +
-        "в worker этот порт не нужен, потому что сценарии мониторов там не выполняются.");
+        "ICurrentUser is not configured: Api registers it via JwtUserIdProvider (claim sub), " +
+        "while worker does not need this port because monitor scenarios are not executed there.");
 }

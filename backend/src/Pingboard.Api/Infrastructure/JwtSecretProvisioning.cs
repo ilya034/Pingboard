@@ -34,8 +34,8 @@ public static class JwtSecretProvisioning
         if (!isDevelopment)
         {
             throw new InvalidOperationException(
-                "Jwt__Secret не задан или короче 32 байт (HS256). Сгенерируйте: openssl rand -base64 48 " +
-                "и передайте через переменную окружения (фактор III).");
+                "Jwt__Secret is not set or is shorter than 32 bytes (HS256). Generate it with: openssl rand -base64 48 " +
+                "and pass it via environment variable (factor III).");
         }
 
         var ephemeral = Convert.ToBase64String(RandomNumberGenerator.GetBytes(EphemeralSecretBytes));
@@ -53,7 +53,7 @@ public static class JwtSecretProvisioning
         else
         {
             throw new InvalidOperationException(
-                "Конфигурация не позволяет задать сгенерированный Jwt__Secret: нужен IConfigurationRoot.");
+                "The current configuration cannot set the generated Jwt__Secret: IConfigurationRoot is required.");
         }
 
         // Разница важна для диагностики: «секрет не задан» и «секрет задан, но негоден» —

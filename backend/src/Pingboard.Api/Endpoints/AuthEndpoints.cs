@@ -25,14 +25,14 @@ public static class AuthEndpoints
             .WithName("Register")
             .AllowAnonymous()
             .RequireRateLimiting(AuthRateLimiting.RegisterPolicyName)
-            .WithSummary("Создать аккаунт и получить access-токен");
+            .WithSummary("Create a new user and get access token");
 
         group.MapPost("/login", async (LoginRequest request, LoginUser useCase, CancellationToken ct) =>
                 Results.Ok(await useCase.ExecuteAsync(request, ct)))
             .WithName("Login")
             .AllowAnonymous()
             .RequireRateLimiting(AuthRateLimiting.LoginPolicyName)
-            .WithSummary("Войти и получить access-токен");
+            .WithSummary("Login and get access token");
 
         return app;
     }

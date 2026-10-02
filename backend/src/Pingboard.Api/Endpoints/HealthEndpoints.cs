@@ -3,10 +3,9 @@ using Pingboard.Application.Abstractions;
 namespace Pingboard.Api.Endpoints;
 
 /// <summary>
-///     Liveness и readiness — это разные вопросы (§10 PLAN.md):
+///     Liveness и readiness(§10 PLAN.md):
 ///     /healthz — процесс жив, оркестратор не перезапускает контейнер;
 ///     /readyz  — сервис готов принимать трафик, то есть БД доступна.
-///     Смешивать их нельзя: падение БД не должно приводить к рестарту пода.
 ///     БД проверяется через порт <see cref="IDatabaseHealthProbe" />: в Api нет типов EF Core (§2 README).
 /// </summary>
 public static class HealthEndpoints
@@ -20,7 +19,7 @@ public static class HealthEndpoints
             .WithName("Liveness")
             .AllowAnonymous()
             .WithTags("ops")
-            .WithSummary("Liveness: процесс жив");
+            .WithSummary("Liveness: process is alive");
 
         app.MapGet("/readyz", async (IDatabaseHealthProbe database, ILoggerFactory loggerFactory, CancellationToken ct) =>
             {
@@ -47,18 +46,14 @@ public static class HealthEndpoints
             .WithName("Readiness")
             .AllowAnonymous()
             .WithTags("ops")
-            .WithSummary("Readiness: SELECT 1 до Postgres");
+            .WithSummary("Readiness: SELECT 1 Postgres");
 
-        // TODO (M5): /metrics — prometheus-net.AspNetCore. Пакет не в оффлайн-фиде,
-        // поэтому в каркасе маршрута нет; подключается одной строкой:
+        // TODO: /metrics — prometheus-net.AspNetCore. Пакет не в оффлайн-фиде,
+        // поэтому в каркасе маршрута нет;
         //   app.MapMetrics();  + services.AddSingleton<IMetricsRoot>(Metrics.Default);
         return app;
     }
-
-    /// <summary>
-    ///     Логирует только смену состояния: kubelet щупает /readyz каждые 5-10 с, и Warning
-    ///     со стектрейсом на каждый провал превращает алерт в шум, который перестают читать.
-    /// </summary>
+    
     private static void LogTransition(ILogger logger, bool ready, Exception? error)
     {
         var wasDegraded = Interlocked.Exchange(ref _degraded, ready ? 0 : 1) == 1;
@@ -66,11 +61,11 @@ public static class HealthEndpoints
         if (ready)
         {
             if (wasDegraded)
-                logger.LogInformation("Readiness восстановлена: БД снова доступна");
+                logger.LogInformation("Readiness restored: DB is available again");
             return;
         }
 
         if (!wasDegraded)
-            logger.LogWarning(error, "Проверка готовности не прошла: БД недоступна");
+            logger.LogWarning(error, "Readiness check failed: DB is unavailable");
     }
 }

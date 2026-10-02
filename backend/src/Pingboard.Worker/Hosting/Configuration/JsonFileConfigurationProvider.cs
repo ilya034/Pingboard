@@ -30,7 +30,7 @@ public sealed class JsonFileConfigurationProvider(string path) : ConfigurationPr
                 // Пустой или битый файл — это ошибка конфигурации, и её текст должен
                 // называть файл: иначе старт падает с голым «JsonReaderException».
                 throw new InvalidOperationException(
-                    $"Не удалось прочитать конфигурацию {Path}: {ex.Message}", ex);
+                    $"Failed to read configuration {Path}: {ex.Message}", ex);
             }
 
             using (document)

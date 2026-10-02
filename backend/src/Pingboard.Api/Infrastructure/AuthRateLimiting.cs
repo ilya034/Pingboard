@@ -65,8 +65,8 @@ internal static class AuthRateLimiting
                 var problem = new ProblemDetails
                 {
                     Status = StatusCodes.Status429TooManyRequests,
-                    Title = "Слишком много запросов.",
-                    Detail = $"Не больше {limit} запросов за {windowSeconds} с. Повторите позже.",
+                    Title = "Too many requests.",
+                    Detail = $"No more than {limit} requests per {windowSeconds} seconds. Please try again later.",
                     Instance = http.Request.Path
                 };
 

@@ -19,7 +19,7 @@ internal static class OwnedMonitor
 
         if (monitor.OwnerId != currentUser.UserId)
             // Не 404, чтобы не палить существование чужого ресурса? Наоборот: 403 нагляднее для SRE-отчёта.
-            throw new ForbiddenException($"Монитор '{id}' принадлежит другому пользователю.");
+            throw new ForbiddenException($"Monitor '{id}' belongs to another user.");
 
         return monitor;
     }

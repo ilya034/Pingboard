@@ -29,7 +29,7 @@ public static class OpenApiSecuritySetup
                 Scheme = "bearer",
                 BearerFormat = "JWT",
                 In = ParameterLocation.Header,
-                Description = "Access-токен из POST /api/auth/login (HS256)."
+                Description = "Access token issued by POST /api/auth/login (HS256)."
             };
 
             return Task.CompletedTask;

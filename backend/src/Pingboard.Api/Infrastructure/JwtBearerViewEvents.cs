@@ -23,8 +23,8 @@ internal static class JwtBearerViewEvents
                 await WriteProblemAsync(
                     context.HttpContext,
                     StatusCodes.Status401Unauthorized,
-                    "Требуется аутентификация.",
-                    "Передайте валидный access-токен в заголовке Authorization: Bearer <token>.",
+                    "Authentication required.",
+                    "Provide a valid access token in the Authorization header: ******",
                     challenge: ErrorResponseFormat.BearerChallenge);
             },
 
@@ -34,8 +34,8 @@ internal static class JwtBearerViewEvents
                 await WriteProblemAsync(
                     context.HttpContext,
                     StatusCodes.Status403Forbidden,
-                    "Доступ запрещён.",
-                    "Токен валиден, но прав на эту операцию нет.");
+                    "Access forbidden.",
+                    "The token is valid, but you do not have permission to perform this action.");
             }
         };
     }

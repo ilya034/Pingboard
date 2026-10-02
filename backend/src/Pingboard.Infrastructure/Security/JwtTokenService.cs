@@ -20,7 +20,7 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options, TimeProvider t
         var cfg = options.Value;
 
         if (!JwtOptions.IsSecretValid(cfg.Secret))
-            throw new InvalidOperationException("Jwt__Secret не задан или короче 32 байт — проверьте конфигурацию.");
+            throw new InvalidOperationException("Jwt__Secret is not set or is shorter than 32 bytes — check the configuration.");
 
         var now = timeProvider.GetUtcNow();
         var expiresAt = now.AddMinutes(cfg.ExpiresMinutes).ToUniversalTime();

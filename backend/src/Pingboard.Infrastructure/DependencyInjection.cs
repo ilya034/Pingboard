@@ -25,7 +25,7 @@ public static class DependencyInjection
     {
         var connectionString = configuration.GetConnectionString("Default")
                                ?? throw new InvalidOperationException(
-                                   "Не задана строка подключения ConnectionStrings__Default — конфигурация только из env (фактор III).");
+                                   "ConnectionStrings__Default is not set; configuration is only from environment (factor III)." );
 
         services.AddDbContext<UptimeDbContext>(options =>
             options.UseNpgsql(connectionString, npgsql =>
@@ -67,25 +67,25 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(JwtOptions.SectionName))
             .Validate(
                 o => JwtSecretValidator.IsValid(o.Secret),
-                "Jwt__Secret короче 32 байт (HS256). Сгенерируйте: openssl rand -base64 48")
-            .Validate(o => o.ExpiresMinutes > 0, "Jwt__ExpiresMinutes должен быть больше нуля");
+                "Jwt__Secret is shorter than 32 bytes (HS256). Generate it with: openssl rand -base64 48")
+            .Validate(o => o.ExpiresMinutes > 0, "Jwt__ExpiresMinutes must be greater than zero");
 
         services.AddOptions<ProbeOptions>()
             .Bind(configuration.GetSection(ProbeOptions.SectionName))
-            .Validate(o => o.TimeoutMs > 0, "Probe__TimeoutMs должен быть больше нуля")
-            .Validate(o => o.HealthyStatusCodes.Length > 0, "Probe__HealthyStatusCodes не может быть пустым")
+            .Validate(o => o.TimeoutMs > 0, "Probe__TimeoutMs must be greater than zero")
+            .Validate(o => o.HealthyStatusCodes.Length > 0, "Probe__HealthyStatusCodes cannot be empty")
             .ValidateOnStart();
 
         services.AddOptions<DueCheckOptions>()
             .Bind(configuration.GetSection(DueCheckOptions.SectionName))
-            .Validate(o => o.BatchSize > 0, "Worker__BatchSize должен быть больше нуля")
-            .Validate(o => o.MaxParallel > 0, "Worker__MaxParallel должен быть больше нуля")
+            .Validate(o => o.BatchSize > 0, "Worker__BatchSize must be greater than zero")
+            .Validate(o => o.MaxParallel > 0, "Worker__MaxParallel must be greater than zero")
             .ValidateOnStart();
 
         services.AddOptions<MonitorsOptions>()
             .Bind(configuration.GetSection(MonitorsOptions.SectionName))
-            .Validate(o => o.UptimeWindowHours > 0, "Monitors__UptimeWindowHours должен быть больше нуля")
-            .Validate(o => o.UptimeBarSegments > 0, "Monitors__UptimeBarSegments должен быть больше нуля")
+            .Validate(o => o.UptimeWindowHours > 0, "Monitors__UptimeWindowHours must be greater than zero")
+            .Validate(o => o.UptimeBarSegments > 0, "Monitors__UptimeBarSegments must be greater than zero")
             .ValidateOnStart();
 
         return services;
@@ -127,8 +127,8 @@ public static class DependencyInjection
         {
             if (existing.Id != userId)
                 throw new InvalidOperationException(
-                    $"Сид демо-пользователя невозможен: email {normalizedEmail} уже занят другим пользователем " +
-                    $"({existing.Id}). Задайте другой Auth__DefaultUserEmail.");
+                    $"Demo user seeding is impossible: email {normalizedEmail} is already used by another user " +
+                    $"({existing.Id}). Set a different Auth__DefaultUserEmail.");
 
             return existing.Id;
         }

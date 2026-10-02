@@ -113,7 +113,7 @@ public sealed class WorkerHost : IAsyncDisposable
         using var signals = RegisterShutdownSignals();
 
         _logger.LogInformation(
-            "Воркер запущен (окружение {Environment}); hosted-сервисов: {Count}",
+            "Worker started (environment {Environment}); hosted services: {Count}",
             _environmentName,
             _hostedServices.Count);
 
@@ -141,19 +141,19 @@ public sealed class WorkerHost : IAsyncDisposable
             catch (OperationCanceledException)
             {
                 _logger.LogWarning(
-                    "Остановка {Service} не уложилась в {Timeout} c: останавливаем принудительно",
+                    "Stopping {Service} exceeded {Timeout} s: forcing shutdown",
                     service.GetType().Name,
                     ShutdownTimeout.TotalSeconds);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Остановка {Service} завершилась ошибкой", service.GetType().Name);
+                _logger.LogWarning(ex, "Stopping {Service} failed", service.GetType().Name);
             }
 
         if (stopBudget.IsCancellationRequested)
-            _logger.LogWarning("Бюджет на остановку ({Timeout} c) исчерпан", ShutdownTimeout.TotalSeconds);
+            _logger.LogWarning("Shutdown budget ({Timeout} s) exhausted", ShutdownTimeout.TotalSeconds);
 
-        _logger.LogInformation("Воркер остановлен чисто");
+        _logger.LogInformation("Worker stopped cleanly");
     }
 
     /// <summary>
@@ -189,7 +189,7 @@ public sealed class WorkerHost : IAsyncDisposable
             context =>
             {
                 context.Cancel = true;
-                _logger.LogInformation("Получен SIGTERM: доигрываем текущую итерацию (фактор IX)");
+                _logger.LogInformation("Received SIGTERM: completing the current iteration (factor IX)");
                 _stopping.Cancel();
             });
 
@@ -205,7 +205,7 @@ public sealed class WorkerHost : IAsyncDisposable
     private void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs args)
     {
         args.Cancel = true;
-        _logger.LogInformation("Получен Ctrl+C: останавливаемся");
+        _logger.LogInformation("Received Ctrl+C: shutting down");
         _stopping.Cancel();
     }
 }

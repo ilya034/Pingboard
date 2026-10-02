@@ -7,7 +7,7 @@ namespace Pingboard.Application.Common;
 public sealed class ValidationFailedException : Exception
 {
     public ValidationFailedException(IReadOnlyDictionary<string, string[]> errors)
-        : base("Запрос не прошёл валидацию.")
+        : base("Request validation failed.")
     {
         Errors = errors;
     }

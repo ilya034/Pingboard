@@ -1,0 +1,33 @@
+# deploy/docker-compose.scale.yml — надстройка «реплики Api» для демонстрации фактора VIII.
+#
+# Зачем отдельный файл. В базовом docker-compose.yml у api есть фиксированный маппинг
+# "${API_BIND:-0.0.0.0:8080}:8080". Публикация фиксированного хост-порта несовместима с репликами:
+# вторая копия не сможет забиндить 8080 и упадёт с «port is already allocated» (а с
+# `restart: unless-stopped` уйдёт в цикл перезапусков). Поэтому чистый запуск `--scale api=2`
+# требует сначала снять публикацию — это и делает `!reset []`.
+#
+# Запуск (из корня репозитория, `--env-file` обязателен — см. §1 DEPLOY.md):
+#   docker compose --env-file .env \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.scale.yml \
+#     --profile web up -d --scale api=2
+#
+# Дальше:
+#   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.scale.yml \
+#     --profile web exec web nginx -s reload     # nginx резолвит `api` при старте: без reload
+#                                                # трафик останется на одной реплике
+#   curl -fsS http://localhost:8081/healthz      # Api виден через nginx, порт 8080 не публикуется
+#   docker compose ... exec api curl -fsS localhost:8080/healthz    # проверка конкретной реплики
+#
+# Требуется compose ≥ 2.24 (тег `!reset`); проверить: `docker compose version`.
+# Вернуться к обычному стенду — просто не передавать этот файл (или `up -d --scale api=1`).
+#
+# ВАЖНО про секрет подписи: у реплик Api должен быть один и тот же `Jwt__Secret`. С пустым
+# секретом в Development каждая реплика генерирует свой эфемерный ключ, и токен, выданный
+# одной репликой, вторая отвергнет с 401 (см. README §6.1.1).
+
+name: pingboard
+
+services:
+  api:
+    # `!reset` очищает список портов, унаследованный из базового файла.
+    ports: !reset []

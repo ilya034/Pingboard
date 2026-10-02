@@ -48,10 +48,10 @@ public sealed class GetMonitorChecks(
         var errors = new ValidationResult();
 
         if (limit is < 1 or > MaxLimit)
-            errors.Add("limit", $"limit должен быть в диапазоне 1..{MaxLimit}.");
+            errors.Add("limit", $"limit must be in the range 1..{MaxLimit}.");
 
         if (from > to)
-            errors.Add("from", "from не может быть позже to.");
+            errors.Add("from", "from cannot be later than to.");
 
         if (!errors.IsValid) throw new ValidationFailedException(errors.Errors);
     }

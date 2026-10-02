@@ -8,8 +8,6 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 // Админ-режим «только схема» (фактор XII): тот же образ, отдельная команда и отдельный процесс.
-// Нужен, потому что в рантайм-образе нет SDK и `dotnet ef` недоступен, а сборка уже умеет
-// применять миграции. Веб-сервер в этом режиме не поднимается, процесс завершается кодом 0.
 if (args.Contains("--migrate", StringComparer.Ordinal))
 {
     // Тот же DI-корень, что и у веб-процесса: AddInfrastructure регистрирует сервисы
@@ -34,20 +32,15 @@ builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
 {
     options.IncludeScopes = true;
-    // ":" в кастомном формате даты — это TimeSeparator текущей культуры (в части культур
-    // он не ":"), поэтому экранируем: иначе парсер логов получит "12.30.00".
     options.TimestampFormat = "yyyy-MM-ddTHH\\:mm\\:ss.fffZ";
     options.UseUtcTimestamp = true;
 });
 
-// DI-корень: композиция слоёв
+// DI-корень
 // Api знает про Infrastructure ровно настолько, чтобы вызвать AddInfrastructure():
-// ни одного типа EF Core в этом файле нет.
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
-// Владелец запроса — claim sub проверенного токена. Регистрируется ПОСЛЕ AddApplication,
-// иначе не перекрыла бы заглушку MissingCurrentUser из TryAddScoped.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, JwtUserIdProvider>();
 
@@ -71,20 +64,20 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .AllowAnyHeader()
     .AllowAnyMethod()));
 
-// Graceful shutdown: воркер доигрывает итерацию, Api доводит запросы (фактор IX).
+// Graceful shutdown(фактор IX).
 builder.Services.Configure<HostOptions>(options => { options.ShutdownTimeout = TimeSpan.FromSeconds(10); });
 
 var app = builder.Build();
 
 if (secretOutcome == JwtSecretOutcome.ReplacedInvalid)
     app.Logger.LogWarning(
-        "Jwt__Secret задан, но не проходит проверку (HS256 требует минимум 32 байта): " +
-        "в Development он подменён эфемерным ключом на этот запуск. " +
-        "В любом другом окружении этот же секрет уронит старт — исправьте значение.");
+        "Jwt__Secret is set but fails validation (HS256 requires at least 32 bytes): " +
+        "in Development it is replaced with an ephemeral key for this run. " +
+        "In any other environment, this same secret will fail startup; fix the value.");
 else if (secretOutcome == JwtSecretOutcome.EphemeralGenerated)
     app.Logger.LogWarning(
-        "Jwt__Secret не задан: сгенерирован эфемерный ключ подписи только для этого запуска. " +
-        "Выданные токены станут недействительны после рестарта. Для стенда задайте Jwt__Secret.");
+        "Jwt__Secret is not set: an ephemeral signing key was generated for this run only. " +
+        "Issued tokens will become invalid after restart. For a staging environment, set Jwt__Secret.");
 
 // Startup-задачи: миграции и сид демо-пользователя
 // MVP (M0): MigrateOnStart=true — Api сам приводит схему в порядок.
@@ -111,8 +104,8 @@ var seedOnStart = builder.Configuration.GetValue("SeedOnStart", app.Environment.
 // на стенде создаётся обычной регистрацией.
 if (seedOnStart && !app.Environment.IsDevelopment())
     throw new InvalidOperationException(
-        "SeedOnStart включён вне Development. Пароль демо-учётки известен из исходников: " +
-        "отключите SeedOnStart и создайте пользователя через POST /api/auth/register.");
+        "SeedOnStart is enabled outside Development. The demo account password is known from source code: " +
+        "disable SeedOnStart and create a user via POST /api/auth/register.");
 
 if (seedOnStart)
     try

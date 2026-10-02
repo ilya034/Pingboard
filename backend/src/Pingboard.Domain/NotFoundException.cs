@@ -9,6 +9,6 @@ public sealed class NotFoundException : DomainException
 
     public static NotFoundException For<T>(object id)
     {
-        return new NotFoundException($"{typeof(T).Name} '{id}' не найден");
+        return new NotFoundException($"{typeof(T).Name} '{id}' not found");
     }
 }

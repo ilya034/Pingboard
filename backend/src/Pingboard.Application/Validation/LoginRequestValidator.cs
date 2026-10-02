@@ -16,12 +16,12 @@ public sealed class LoginRequestValidator : IRequestValidator<LoginRequest>
         var result = new ValidationResult();
 
         if (string.IsNullOrWhiteSpace(request.Email))
-            result.Add(AuthValidationFields.Email, "Email обязателен.");
+            result.Add(AuthValidationFields.Email, "Email is required.");
 
         if (string.IsNullOrWhiteSpace(request.Password))
-            result.Add(AuthValidationFields.Password, "Пароль обязателен.");
+            result.Add(AuthValidationFields.Password, "Password is required.");
         else if (request.Password.Length > PasswordRules.MaxLength)
-            result.Add(AuthValidationFields.Password, $"Пароль не длиннее {PasswordRules.MaxLength} символов.");
+            result.Add(AuthValidationFields.Password, $"Password must not exceed {PasswordRules.MaxLength} characters.");
 
         return result;
     }

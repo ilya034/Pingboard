@@ -32,9 +32,14 @@ services:
       - ${PGDATA_PATH:-/srv/pingboard/pgdata}:/var/lib/postgresql
 
   migrate:
+    # Тот же образ и тот же тег, что у api/worker: админ-процесс — это третья команда одного
+    # релиза, а не отдельная сборка (факторы V, XII).
+    image: pingboard-api:${IMAGE_TAG:-local}
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
     # Админ-процесс: отдельная команда, а не «фоновый режим приложения» (фактор XII).
     # --migrate — режим «применить схему и выйти» в самой сборке: в рантайм-образе нет SDK,
     # поэтому migrate-bundle из §9 PLAN.md остаётся задачей M5, но процесс уже honest —

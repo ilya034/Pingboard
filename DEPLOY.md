@@ -25,8 +25,9 @@
 измеряется свежестью файла-пульса.
 
 Ключевая мысль про `api` и `worker`: это **один образ и два process type** (фактор VIII), поэтому
-второй процесс не разъезжается с первым по версии, а масштабируются они независимо — с оговорками
-по публикуемому порту Api и по балансировке, см. §5.7.
+второй процесс не разъезжается с первым по версии, а масштабируются они независимо. Образ у них общий
+и тегированный (`IMAGE_TAG`, фактор V), а реплики Api требуют снять публикацию порта — для этого есть
+надстройка `deploy/docker-compose.scale.yml`, см. §5.7.
 
 ---
 
@@ -80,6 +81,8 @@ openssl rand -base64 48      # → положить в Jwt__Secret (миниму
 | `API_BIND` | `0.0.0.0:8080` | `127.0.0.1:8080` | куда публикуется Api |
 | `WEB_BIND` | `8081` | `127.0.0.1:8081` | куда публикуется nginx со SPA |
 | `PGDATA_PATH` (только prod-файл) | — | `/srv/pingboard/pgdata` | каталог хоста под данные Postgres |
+| `IMAGE_TAG` | обычно не задавать (будет `local`) | тег релиза, например `0.1.0` | тег единого образа api/worker/migrate (фактор V): по нему видно, что закатано, и на него же делается откат |
+| `APP_VERSION` | `0.1.0` | та же, что в `Directory.Build.props` | уходит в OCI-label образа: `docker image inspect pingboard-api:<тег>` показывает версию внутри артефакта, а не только в git |
 
 Две ловушки, которые стоит знать заранее:
 
@@ -283,10 +286,21 @@ $DC logs --since 5m api | grep -i 'rate\|429' || true
 ```bash
 cd /srv/pingboard/app
 git pull
-$DC --profile web build
+export IMAGE_TAG=0.1.0                      # тег релиза; APP_VERSION — в .env (см. §3)
+$DC --profile web build                     # образ api/worker/migrate под этим тегом + образ web
 $DC --profile migrate run --rm migrate      # схема — до старта нового кода
-$DC --profile web up -d                     # пересоздаст изменившиеся контейнеры
+$DC --profile web up -d                     # пересоздаст контейнеры на новом образе
 $DC ps && curl -fsS http://127.0.0.1:8080/readyz
+docker image inspect pingboard-api:0.1.0 \
+  --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'   # → 0.1.0
+```
+
+Тег здесь не украшение: без него «релиз» — это «пересобрали тот же коммит», и откатываться
+некуда, кроме `git checkout` и новой сборки. С тегом на хосте остаётся список артефактов
+(`docker image ls pingboard-api`), а откат кода становится переключением образа:
+
+```bash
+IMAGE_TAG=0.0.9 $DC --profile web up -d     # старая версия из уже собранного образа, без сборки
 ```
 
 Порядок «сначала миграции, потом код» рассчитан на совместимые изменения (добавить таблицу или
@@ -294,7 +308,7 @@ $DC ps && curl -fsS http://127.0.0.1:8080/readyz
 нужен приём expand/contract: сначала релиз, который пишет и старое, и новое, потом удаление
 старого. Для учебного стенда достаточно первого варианта.
 
-Откат:
+Откат по исходникам (если образа прошлого релиза на хосте нет):
 
 ```bash
 git checkout <прошлый-тег-или-коммит>
@@ -339,7 +353,7 @@ $DC exec -T postgres psql -U pingboard -d pingboard -c \
 | Здоровье Api | healthcheck `curl -fsS /healthz`, интервал 10 с |
 | Здоровье воркера | свежесть файла-пульса (`< 120 с`); воркер пишет его даже когда все проверки падают |
 | Здоровье БД | `pg_isready` + `/readyz` |
-| Масштабирование Api | Api stateless (JWT, состояния в процессе нет), но он публикует **фиксированный** хост-порт — `API_BIND=0.0.0.0:8080`. Поэтому `$DC up -d --scale api=2` в текущем виде не сработает: вторая реплика не забиндит 8080 (`port is already allocated`). Рецепт: снять публикацию порта у `api` (наружу Api и так виден через nginx — `/api`, `/healthz`, `/readyz`) либо отдать диапазон портов, затем `--scale api=2` и `$DC exec web nginx -s reload`: nginx резолвит `api:8080` один раз при старте и новые адреса сам не подхватывает. Второе условие — **заданный `Jwt__Secret`**: с пустым секретом (как в `.env.example`) каждая реплика в Development генерирует свой эфемерный ключ подписи, и токен, выданный одной репликой, вторая отвергнет с 401 |
+| Масштабирование Api | Реплики поднимаются надстройкой `deploy/docker-compose.scale.yml`, которая снимает публикацию фиксированного порта (`ports: !reset []`, нужен compose ≥ 2.24): `export DCS="docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.scale.yml"`, затем `$DCS --profile web up -d --scale api=2` и `$DCS --profile web exec web nginx -s reload` — nginx резолвит `api:8080` один раз при старте и новые реплики сам не подхватывает. На «проде» в список файлов добавляется `-f deploy/docker-compose.prod.yml`. Api остаётся виден через nginx (`curl -fsS http://localhost:8081/healthz`), конкретная реплика проверяется изнутри: `$DCS exec api curl -fsS localhost:8080/healthz`. Обязательное условие — **заданный `Jwt__Secret`**: с пустым секретом каждая реплика генерирует свой эфемерный ключ подписи, и токен, выданный одной репликой, вторая отвергнет с 401 |
 | Лимиты при репликах Api | Rate limit — в памяти процесса, у каждой реплики свой счётчик: лимит умножается на число реплик (а за nginx все клиенты приходят с адреса прокси, и лимит становится общим на стенд). Осознанная граница, распределённый счётчик — M5, см. README §6.5 |
 | Масштабирование воркера | `$DC up -d --scale worker=2` — дублей проверок не будет: `ListDueAsync` (`MonitorRepository`) захватывает мониторы условным `UPDATE … WHERE last_checked_at + interval <= now` и отдаёт только строки со своим штампом, поэтому сосед получает пустую выборку. Цена захвата: процесс, умерший сразу после него, теряет один интервал по этим мониторам — снимает эту цену `FOR UPDATE SKIP LOCKED` (расширение №6), а не дубли |
 | Пульс при репликах воркера | `Worker__HeartbeatPath=/tmp/pingboard-worker-heartbeat` — файл внутри контейнера, тома нет, поэтому у каждой реплики свой пульс и свой healthcheck |
@@ -347,13 +361,18 @@ $DC exec -T postgres psql -U pingboard -d pingboard -c \
 | Смена `Jwt__Secret` | все выданные токены становятся недействительными (пользователи перелогинятся) |
 | Обновление базовых образов | `$DC pull && $DC --profile web up -d` (postgres/nginx/node) |
 | Воркер после рестарта | «расписание» — данные в БД, поэтому `restart worker` безопасен (факторы VI, IX) |
+| Остановка контейнеров | `$DC stop api worker` → SIGTERM, приложение доигрывает в пределах своего бюджета в 10 с (`HostOptions.ShutdownTimeout` у Api, `WorkerHost.ShutdownTimeout` у воркера). В compose у `api` и `worker` стоит `stop_grace_period: 15s`: без запаса Docker прислал бы SIGKILL ровно в момент доигрывания (фактор IX) |
+| Что закатано сейчас | `docker image ls pingboard-api` и `docker image inspect pingboard-api:<тег> --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'`; тег задаётся `IMAGE_TAG` при сборке релиза (фактор V, §5.5) |
 
-Оговорка про команды масштабирования: на машине сборки они **не прогонялись** (Docker-демон недоступен,
-см. README §7) — сказанное выше выведено из конфигурации и кода. Что именно проверено статически:
-`docker compose … config` даёт у `api` единственный маппинг `8080:8080`; в Api нет `IHostedService`,
-а процесса-локальное состояние ограничено счётчиками rate limit и эфемерным dev-ключом подписи; захват
-в `ListDueAsync` — это условный `ExecuteUpdateAsync`, и его SQL покрыт контрактным тестом
-(`DatabaseContractTests`).
+Оговорка про запуски: ни команды масштабирования, ни команды обновления/отката на машине сборки
+**не прогонялись** (Docker-демон недоступен, см. README §7) — сказанное выше выведено из конфигурации
+и кода. Что проверено статически: `docker compose config` проходит для всех трёх наборов файлов
+(базовый, с `docker-compose.scale.yml`, с `docker-compose.prod.yml` + профиль `migrate`) и подтверждает,
+что `!reset []` снимает у `api` маппинг `8080:8080`, что `image: pingboard-api:<тег>`,
+`stop_grace_period: 15s` и `APP_VERSION` попадают в итоговый конфиг у `api`, `worker` и `migrate`;
+в Api нет `IHostedService`, а процесса-локальное состояние ограничено счётчиками rate limit и
+эфемерным dev-ключом подписи; захват в `ListDueAsync` — условный `ExecuteUpdateAsync`, и его SQL
+покрыт контрактным тестом (`DatabaseContractTests`).
 
 ### 5.8. Диагностика
 

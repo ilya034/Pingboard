@@ -23,7 +23,7 @@ public sealed class JwtUserIdProvider(IHttpContextAccessor accessor) : ICurrentU
             return Guid.TryParse(raw, out var id)
                 ? id
                 : throw new UnauthorizedException(
-                    "В access-токене нет claim sub с идентификатором пользователя.");
+                    "No sub claim with a user ID was found in the access token.");
         }
     }
 }

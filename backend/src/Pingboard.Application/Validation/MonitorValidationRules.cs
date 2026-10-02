@@ -8,26 +8,26 @@ internal static class MonitorValidationRules
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            if (required) result.Add(nameof(name), "Имя обязательно.");
+            if (required) result.Add(nameof(name), "Name is required.");
 
             return;
         }
 
         if (name.Trim().Length > MonitorRules.NameMaxLength)
-            result.Add(nameof(name), $"Имя не длиннее {MonitorRules.NameMaxLength} символов.");
+            result.Add(nameof(name), $"Name must not exceed {MonitorRules.NameMaxLength} characters.");
     }
 
     public static void CheckUrl(ValidationResult result, string? url, bool required)
     {
         if (string.IsNullOrWhiteSpace(url))
         {
-            if (required) result.Add(nameof(url), "URL обязателен.");
+            if (required) result.Add(nameof(url), "URL is required.");
 
             return;
         }
 
         if (!MonitorRules.IsSupportedUrl(url))
-            result.Add(nameof(url), "Нужен абсолютный URL со схемой http или https.");
+            result.Add(nameof(url), "An absolute URL with http or https scheme is required.");
     }
 
     public static void CheckInterval(ValidationResult result, int? intervalSeconds)
@@ -37,6 +37,6 @@ internal static class MonitorValidationRules
         if (!MonitorRules.IsValidInterval(intervalSeconds.Value))
             result.Add(
                 nameof(intervalSeconds),
-                $"Интервал должен быть в диапазоне {MonitorRules.IntervalSecondsMin}..{MonitorRules.IntervalSecondsMax} секунд.");
+                $"Interval must be in the range {MonitorRules.IntervalSecondsMin}..{MonitorRules.IntervalSecondsMax} seconds.");
     }
 }

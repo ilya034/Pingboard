@@ -404,17 +404,17 @@ volumes: { pgdata: {} }
 | # | Фактор | Как в проекте |
 |---|---|---|
 | I | Codebase | один git-репозиторий (бек + фронт + deploy); dev-стенд и «прод» — два deploy'я одной кодовой базы |
-| II | Dependencies | всё объявлено и запинено: `Directory.Packages.props` (центральные версии), `packages.lock.json`; в рантайм-образе нет SDK и глобальных пакетов |
+| II | Dependencies | всё объявлено и запинено: `Directory.Packages.props` (центральные версии) + `CentralPackageTransitivePinningEnabled`, в рантайм-образе нет SDK; у фронта — `package-lock.json` + `npm ci`. Lock-файлов NuGet нет (`RestorePackagesWithLockFile` не задан) — это открытый пункт, см. [REVIEW-12FACTORS.md](REVIEW-12FACTORS.md) |
 | III | Config | все настройки из env (таблица §8); `.env` не в git, в репо `.env.example`; секреты не в `appsettings` |
 | IV | Backing services | Postgres (и позже SMTP/Telegram) «прикреплены» env-строками; смена инстанса = смена переменной, код не трогаем |
-| V | Build, release, run | build = multi-stage Dockerfile; release = тег образа + прогон миграций (bundle); run = compose (потом k8s) |
-| VI | Processes | stateless: JWT вместо серверных сессий; «расписание» воркера — данные в БД, не таймеры в памяти |
+| V | Build, release, run | build = multi-stage Dockerfile; release = тот же Dockerfile собирается под тегом `IMAGE_TAG` (`pingboard-api:<тег>`, один артефакт на `api`/`worker`/`migrate`, версия — ещё и в OCI-label) + явный прогон миграций (`--migrate` процесс); run = compose (потом k8s). Продвижение из реестра/CI — расширение №4, migrate-bundle — M5 |
+| VI | Processes | stateless: JWT вместо серверных сессий; «расписание» воркера — данные в БД, не таймеры в памяти. Процесса-локальное состояние ограничено тремя вещами: счётчики rate limit, эфемерный dev-ключ подписи и флаг «уже сообщили о degraded» в `/readyz` (на ответы не влияет) |
 | VII | Port binding | Kestrel слушает `ASPNETCORE_URLS=http://+:8080`; приложение самодостаточно |
-| VIII | Concurrency | два process types из одного образа: `api` (stateless, JWT) и `worker` (расписание — в БД, захват мониторов — условным `UPDATE`). Реплики воркера дублей не дают (§6); репликам Api мешают фиксированная публикация хост-порта (`API_BIND`) и эфемерный dev-ключ подписи — секрет нужен явный — рецепт в §14 и DEPLOY.md §5.7 |
-| IX | Disposability | SIGTERM → graceful shutdown (воркер доигрывает итерацию, `ShutdownTimeout=10s`); быстрые healthcheck'и |
-| X | Dev/prod parity | локально крутятся те же образы, что на VPS; dev от prod отличается только env |
+| VIII | Concurrency | два process types из одного образа: `api` (stateless, JWT) и `worker` (расписание — в БД, захват мониторов — условным `UPDATE`). Реплики воркера дублей не дают (§6); реплики Api запускаются надстройкой `deploy/docker-compose.scale.yml` (снимает фиксированный порт) при явно заданном `Jwt__Secret` — см. §14 и DEPLOY.md §5.7 |
+| IX | Disposability | SIGTERM → graceful shutdown (воркер доигрывает итерацию, `ShutdownTimeout=10s`); в compose у `api`/`worker` `stop_grace_period: 15s`, чтобы SIGKILL не пришёл раньше бюджета приложения; быстрые healthcheck'и |
+| X | Dev/prod parity | один и тот же Dockerfile и код: дев-стенд и «прод» — два deploy'я одного образа, который собирается на месте (`--build`); отличия сведены к env (`ASPNETCORE_ENVIRONMENT`, `MigrateOnStart`, `API_BIND`, `PGDATA_PATH`) |
 | XI | Logs | только stdout/stderr, JSON (`AddJsonConsole`); никаких файлов; собирает Docker (потом Loki) |
-| XII | Admin processes | `dotnet ef migrations add` / `bundle`, сид-скрипт, `pingboard-migrate` — one-off процессы, не «фоновые фичи» приложения |
+| XII | Admin processes | `dotnet ef migrations add`, сид (`SeedDefaultUserAsync`, вне Development запрещён), `dotnet Pingboard.Api.dll --migrate` — one-off процессы той же сборки, не «фоновые фичи» приложения; migrate-bundle вместо этого режима — M5 |
 
 Плюс SRE-детали сверх факторов: `/healthz` (liveness) отдельно от `/readyz` (readiness с пингом БД), `/metrics`, CorrelationId в логах, структурные ошибки ProblemDetails.
 
@@ -508,7 +508,7 @@ volumes: { pgdata: {} }
 2. Добавить два монитора: живой (`https://example.com`) и падающий (`https://httpstat.us/500`) → бейджи green/red, у второго растёт downtime.
 3. Открыть страницу монитора: спарклайн задержек, история проверок.
 4. `docker compose restart worker` → ничего не потерялось, чеки продолжаются → **факторы VI/IX**.
-5. Масштабирование → **фактор VIII**. Воркер: `docker compose up -d --scale worker=2` работает как есть (дублей не будет — захват в `ListDueAsync`). Api: сначала снять публикацию хост-порта — при `ports: "${API_BIND:-0.0.0.0:8080}:8080"` вторая реплика не забиндит 8080, и `--scale api=2` упадёт; наружу Api и так виден через nginx (`/api`, `/healthz`, `/readyz`). Плюс `Jwt__Secret` должен быть задан явно (иначе у реплик разные эфемерные ключи). После добавления реплики — `docker compose exec web nginx -s reload`: nginx резолвит `api:8080` один раз при старте.
+5. Масштабирование → **фактор VIII**. Воркер: `docker compose up -d --scale worker=2` работает как есть (дублей не будет — захват в `ListDueAsync`). Api: реплики поднимаются надстройкой `deploy/docker-compose.scale.yml`, которая снимает публикацию фиксированного хост-порта (`ports: !reset []`) — без неё вторая реплика не забиндит 8080 и `--scale api=2` упадёт; наружу Api и так виден через nginx (`/api`, `/healthz`, `/readyz`). Плюс `Jwt__Secret` должен быть задан явно (иначе у реплик разные эфемерные ключи). После добавления реплики — `exec web nginx -s reload`: nginx резолвит `api:8080` один раз при старте.
 6. `docker compose logs -f api` → JSON-логи в stdout → **фактор XI**.
 7. `docker compose stop api` → в логах graceful shutdown → **фактор IX**.
 8. Показать `.env.example` и место чтения конфига → **факторы III/IV**.

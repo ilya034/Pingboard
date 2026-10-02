@@ -41,8 +41,8 @@ public static class ProbeTargetGuard
                 // текст отказа попадает в историю проверок и владельцу монитора, то есть
                 // иначе превратился бы в способ прощупывать внутреннюю сеть по коду ошибки.
                 throw new IOException(
-                    $"Адрес {host} недоступен: проверки внутренних и служебных адресов запрещены " +
-                    "(снимается настройкой Probe__AllowPrivateNetworks=true).");
+                    $"Address {host} is unavailable: checks against internal and service addresses are not allowed " +
+                    "(override with Probe__AllowPrivateNetworks=true).");
 
             addresses = allowed;
         }
@@ -66,7 +66,7 @@ public static class ProbeTargetGuard
             }
         }
 
-        throw lastError ?? new IOException($"Не удалось подключиться к {host}:{port}");
+        throw lastError ?? new IOException($"Failed to connect to {host}:{port}");
     }
 
     /// <summary>Публичный адрес: не loopback, не приватный диапазон, не link-local и не multicast.</summary>

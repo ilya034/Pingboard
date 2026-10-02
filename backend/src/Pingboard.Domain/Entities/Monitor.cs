@@ -62,7 +62,7 @@ public sealed class Monitor : Entity<Guid>
         var cleanUrl = ValidateUrl(url);
         var interval = ValidateInterval(intervalSeconds);
 
-        if (ownerId == Guid.Empty) throw DomainValidationException.For(nameof(ownerId), "владелец не задан");
+        if (ownerId == Guid.Empty) throw DomainValidationException.For(nameof(ownerId), "owner is required");
 
         return new Monitor(Guid.NewGuid(), ownerId, cleanName, cleanUrl, interval, enabled, now);
     }

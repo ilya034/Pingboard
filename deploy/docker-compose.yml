@@ -38,9 +38,14 @@ services:
     # Порт наружу не публикуем: БД доступна только внутри сети compose.
 
   api:
+    # Один образ на релиз: имя и тег фиксированы, а не «что соберётся» (фактор V).
+    # APP_VERSION уходит в OCI-label образа — см. deploy/Dockerfile.api.
+    image: pingboard-api:${IMAGE_TAG:-local}
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
     env_file: ../.env
     environment:
       # Один образ, разные команды — поэтому команда задаётся здесь (фактор VIII).
@@ -48,6 +53,10 @@ services:
     ports:
       # На dev-стенде Api нужен с хоста (curl, smoke-скрипты), поэтому публикуем; на «проде»
       # этот же параметр задаётся как 127.0.0.1:8080 (см. .env.example) — снаружи только nginx.
+      #
+      # ВАЖНО: публикация фиксированного порта несовместима с репликами (`--scale api=2`):
+      # вторая реплика не забиндит 8080. Демонстрация фактора VIII запускается с
+      # deploy/docker-compose.scale.yml, который снимает этот маппинг.
       - "${API_BIND:-0.0.0.0:8080}:8080"
     depends_on:
       postgres:
@@ -59,11 +68,17 @@ services:
       retries: 6
       start_period: 15s
     restart: unless-stopped
+    # Бюджет приложения на остановку — 10 с (HostOptions.ShutdownTimeout), поэтому Docker даёт
+    # ему больше: при равных значениях SIGKILL приходит ровно в момент доигрывания (фактор IX).
+    stop_grace_period: 15s
 
   worker:
+    image: pingboard-api:${IMAGE_TAG:-local}
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
     command: ["dotnet", "worker/Pingboard.Worker.dll"]
     env_file: ../.env
     depends_on:
@@ -78,6 +93,8 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
+    # Тот же бюджет, что у Api: WorkerHost даёт hosted-сервисам 10 с на доигрывание итерации.
+    stop_grace_period: 15s
     # Воркер stateless: его можно убивать и перезапускать в любой момент (факторы VI, IX).
 
   web:

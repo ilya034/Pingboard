@@ -32,6 +32,15 @@ RUN dotnet publish backend/src/Pingboard.Worker/Pingboard.Worker.csproj -c Relea
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
+# Версия релиза приходит build-arg'ом (в compose это build.args.APP_VERSION). Вместе с тегом
+# образа (IMAGE_TAG, фактор V) это отвечает на вопрос «что именно закатано»:
+#   docker image inspect pingboard-api:0.1.0 \
+#     --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'
+ARG APP_VERSION=0.0.0
+LABEL org.opencontainers.image.title="pingboard-api" \
+      org.opencontainers.image.description="Pingboard: Api и Worker — один образ, две команды (фактор VIII)" \
+      org.opencontainers.image.version="$APP_VERSION"
+
 # curl нужен healthcheck'у compose.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \

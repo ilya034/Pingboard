@@ -58,11 +58,11 @@ public sealed class RunDueChecks(
                     // Контракт IProbeService — «наружу не бросает» (см. файл порта), но цикл
                     // не имеет права на это полагаться: одно неожиданное исключение убило бы
                     // всю итерацию вместе с уже сделанными проверками, и батч вернулся бы в очередь.
-                    logger.LogWarning(ex, "Проверка монитора {MonitorId} завершилась исключением", monitor.Id);
+                    logger.LogWarning(ex, "Monitor check {MonitorId} ended with an exception", monitor.Id);
 
                     // Наружу (в историю проверок, которую видит владелец) — общая формулировка:
                     // текст исключения может содержать внутренние детали.
-                    outcome = ProbeOutcome.Failure("Внутренняя ошибка проверки");
+                    outcome = ProbeOutcome.Failure("Internal check error");
                     checkedAt = timeProvider.GetUtcNow();
                 }
 
@@ -83,7 +83,7 @@ public sealed class RunDueChecks(
 
         var failed = batch.Count(c => !c.Ok);
         logger.LogInformation(
-            "Проверено мониторов: {Checked}, из них неуспешных: {Failed}, параллелизм: {Parallelism}",
+            "Monitors checked: {Checked}, failed: {Failed}, parallelism: {Parallelism}",
             batch.Count,
             failed,
             parallelism);

@@ -28,15 +28,15 @@ internal static class ExceptionStatusMapper
         {
             ValidationFailedException validation => new MappedError(
                 StatusCodes.Status400BadRequest,
-                "Запрос не прошёл валидацию.",
-                "Одно или несколько полей заполнены неверно.",
+                "Request validation failed.",
+                "One or more fields are invalid.",
                 Errors: validation.Errors),
 
             // Ошибка входных данных домена. Поле берётся из отдельного свойства, поэтому
             // в разбивке оно одно: раньше ключом был «domain», а в сообщении дублировалось «Email: …».
             DomainValidationException domain => new MappedError(
                 StatusCodes.Status400BadRequest,
-                "Нарушено бизнес-правило.",
+                "Business rule violated.",
                 domain.Message,
                 Errors: new Dictionary<string, string[]> { [domain.Field ?? "domain"] = [domain.Message] }),
 
@@ -44,27 +44,27 @@ internal static class ExceptionStatusMapper
             // а не сбой сервиса. Иначе каждая опечатка клиента превращается в «алертный» 500.
             BadHttpRequestException bad => new MappedError(
                 bad.StatusCode,
-                "Тело запроса не удалось прочитать.",
-                "Ожидается корректный JSON, соответствующий схеме запроса.",
-                Errors: new Dictionary<string, string[]> { ["body"] = ["Некорректное тело запроса."] }),
+                "Request body could not be read.",
+                "A valid JSON body matching the request schema is required.",
+                Errors: new Dictionary<string, string[]> { ["body"] = ["Invalid request body."] }),
 
             // Гонка двух регистраций на один email: проверка GetByEmailAsync проходит у обоих,
             // и нарушение ux_users_email приходит уже из Postgres. Это 400 по полю email,
             // а не 503 «база не отвечает» и не 500: клиенту нужно то же поле, что и при обычной валидации.
             _ when HasUniqueViolation(exception, UsersEmailIndex) => new MappedError(
                 StatusCodes.Status400BadRequest,
-                "Запрос не прошёл валидацию.",
-                "Пользователь с таким email уже зарегистрирован.",
+                "Request validation failed.",
+                "A user with this email is already registered.",
                 Errors: new Dictionary<string, string[]>
                 {
-                    [nameof(RegisterRequest.Email)] = ["Пользователь с таким email уже зарегистрирован."]
+                    [nameof(RegisterRequest.Email)] = ["A user with this email is already registered."]
                 }),
 
             // Прочие нарушения уникальности — конфликт состояния, а не ошибка входных данных.
             _ when HasUniqueViolation(exception, null) => new MappedError(
                 StatusCodes.Status409Conflict,
-                "Нарушено ограничение уникальности.",
-                "Объект с такими данными уже существует."),
+                "Unique constraint violated.",
+                "An object with these values already exists."),
 
             // 401 — «кто ты?»: нет/просрочен/подделан токен, либо неверная пара email+пароль.
             // 403 — «тебе нельзя»: токен валиден, но ресурс чужой.
@@ -86,21 +86,21 @@ internal static class ExceptionStatusMapper
 
             OperationCanceledException => new MappedError(
                 StatusCodes.Status499ClientClosedRequest,
-                "Запрос отменён клиентом.",
-                "Клиент разорвал соединение до ответа."),
+                "Request cancelled by client.",
+                "Client disconnected before the response was sent."),
 
             // Недоступная БД — это не «внутренняя ошибка сервиса», а состояние backing service
             // (фактор IV). 503 честнее 500: он говорит «я жив, но зависимость недоступна»,
             // и согласуется с /readyz, который в этой ситуации тоже отвечает 503.
             _ when IsBackingServiceUnavailable(exception) => new MappedError(
                 StatusCodes.Status503ServiceUnavailable,
-                "Сервис временно недоступен: база данных не отвечает.",
-                "Сервис временно недоступен, попробуйте позже."),
+                "Service temporarily unavailable: the database is unresponsive.",
+                "Service temporarily unavailable, please try again later."),
 
             _ => new MappedError(
                 StatusCodes.Status500InternalServerError,
-                "Внутренняя ошибка сервиса.",
-                "Сервис временно недоступен, попробуйте позже.")
+                "Internal server error.",
+                "Service temporarily unavailable, please try again later.")
         };
     }
 
