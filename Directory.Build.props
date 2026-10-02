@@ -14,6 +14,11 @@
              с TreatWarningsAsErrors это ломает сборку по независящим от кода причинам. -->
         <NuGetAudit>false</NuGetAudit>
         <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
+        <!-- Lock-файлы NuGet (фактор II): центральные версии пинят прямые зависимости,
+             а packages.lock.json — ещё и транзитивные. Лежат рядом с каждым проектом и
+             лежат в git, поэтому «на CI собралось не то, что локально» видно до сборки:
+             restore в locked-mode падает, если lock-файл разошёлся с проектом. -->
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     </PropertyGroup>
 
     <!-- Версия продукта — одна на весь релиз (фактор V: один релиз, много процессов). -->

@@ -21,8 +21,19 @@ COPY backend/src/Pingboard.Application/*.csproj backend/src/Pingboard.Applicatio
 COPY backend/src/Pingboard.Infrastructure/*.csproj backend/src/Pingboard.Infrastructure/
 COPY backend/src/Pingboard.Api/*.csproj backend/src/Pingboard.Api/
 COPY backend/src/Pingboard.Worker/*.csproj backend/src/Pingboard.Worker/
-RUN dotnet restore backend/src/Pingboard.Api/Pingboard.Api.csproj --source https://api.nuget.org/v3/index.json \
-    && dotnet restore backend/src/Pingboard.Worker/Pingboard.Worker.csproj --source https://api.nuget.org/v3/index.json
+
+# Lock-файлы NuGet (фактор II) едут вместе с манифестами: restore идёт в locked-mode, то есть
+# образ собирается ровно из того графа зависимостей, что проверен и закоммичен. Расхождение
+# (правка PackageReference без пересборки lock-файла) валит сборку образа, а не молча тянет
+# новые транзитивные версии. Обновить lock-файлы: dotnet restore backend/Pingboard.sln.
+COPY backend/src/Pingboard.Domain/packages.lock.json backend/src/Pingboard.Domain/
+COPY backend/src/Pingboard.Application/packages.lock.json backend/src/Pingboard.Application/
+COPY backend/src/Pingboard.Infrastructure/packages.lock.json backend/src/Pingboard.Infrastructure/
+COPY backend/src/Pingboard.Api/packages.lock.json backend/src/Pingboard.Api/
+COPY backend/src/Pingboard.Worker/packages.lock.json backend/src/Pingboard.Worker/
+
+RUN dotnet restore backend/src/Pingboard.Api/Pingboard.Api.csproj --source https://api.nuget.org/v3/index.json --locked-mode \
+    && dotnet restore backend/src/Pingboard.Worker/Pingboard.Worker.csproj --source https://api.nuget.org/v3/index.json --locked-mode
 
 COPY backend/ backend/
 RUN dotnet publish backend/src/Pingboard.Api/Pingboard.Api.csproj -c Release -o /app --no-restore

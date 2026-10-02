@@ -101,6 +101,20 @@ openssl rand -base64 48      # → положить в Jwt__Secret (миниму
 docker compose --env-file .env -f deploy/docker-compose.yml config | grep -E 'POSTGRES_|ConnectionStrings|API_BIND|WEB_BIND'
 ```
 
+Отдельно про lock-файлы NuGet (фактор II): рядом с каждым `.csproj` лежит `packages.lock.json`,
+а restore в образе идёт с `--locked-mode`. Поэтому на хосте ничего делать не нужно — но если вы
+меняете зависимости (`Directory.Packages.props` или `PackageReference`), lock-файл обязан
+обновиться в том же коммите:
+
+```bash
+dotnet restore backend/Pingboard.sln        # пересобирает packages.lock.json
+git add backend/**/packages.lock.json
+```
+
+Если этого не сделать, сборка образа упадёт с внятной ошибкой `NU1004` («ссылки на пакеты
+изменились») — это и есть цель: «на CI собралось не то, что проверено» ловится до сборки, а не
+после деплоя. Намеренно обновить граф в обход проверки: `dotnet restore backend/Pingboard.sln --force-evaluate`.
+
 ---
 
 ## 4. Dev-стенд за пять минут

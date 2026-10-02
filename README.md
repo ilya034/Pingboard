@@ -14,6 +14,7 @@ Uptime-монитор для SRE-курса (мини-UptimeRobot): пользо
 |---|---|
 | Решение и 5 проектов + 2 тестовых | ✅ собирается, 0 предупреждений |
 | Центральные версии NuGet (`Directory.Packages.props`) | ✅ 23 пакета (версии в одном месте, в `.csproj` версий нет) |
+| Lock-файлы NuGet (`packages.lock.json`, `RestorePackagesWithLockFile`) | ✅ по одному на проект: пинят транзитивные зависимости, рестор в CI/образе идёт `--locked-mode` |
 | Доменные сущности и инварианты (`Monitor`, `CheckResult`, `User`) | ✅ с тестами (32) |
 | Порты Application + сценарии (CRUD мониторов, цикл проверок, auth) | ✅ с тестами |
 | Infrastructure: DbContext, репозитории, HTTP-пробер, JWT, хеш паролей | ✅ |
@@ -35,6 +36,7 @@ sre/
 ├─ backend/                       # вся серверная часть: решение, код, тесты, инструменты бека
 │  ├─ Pingboard.sln
 │  ├─ Directory.Packages.props    # центральные версии NuGet (фактор II)
+│  │                              # + packages.lock.json рядом с каждым .csproj (транзитивные версии)
 │  ├─ scripts/TestRunner/         # in-process раннер тестов (обход падения VSTest в песочнице)
 │  ├─ src/
 │  │  ├─ Pingboard.Domain/        # ЯДРО: ноль NuGet-зависимостей
@@ -265,7 +267,7 @@ Invoke-RestMethod -Uri http://localhost:8080/api/monitors -Headers @{ Authorizat
 
 ## 5. Конфигурация
 
-Только окружение (фактор III): `appsettings.json` содержит dev-умолчания **без секретов**, всё остальное — переменные вида `Worker__MaxParallel`. В [.env.example](.env.example) — рабочий набор стенда; ключи с безопасными дефолтами, которых там нет (`SeedOnStart`, `Probe__HealthyStatusCodes`, `Probe__UseHeadWithGetFallback`, `Logging__LogLevel__*`), разобраны в DEPLOY.md §3 и лежат дефолтами в `appsettings.json`. Строка подключения `ConnectionStrings__Default` обязательна, иначе процесс падает на старте с понятной ошибкой.
+Только окружение (фактор III): `appsettings.json` содержит dev-умолчания **без секретов**, всё остальное — переменные вида `Worker__MaxParallel`. В [.env.example](.env.example) — рабочий набор стенда, включая ключи с безопасными дефолтами (`SeedOnStart`, `Probe__HealthyStatusCodes`, `Probe__UseHeadWithGetFallback`, `Logging__LogLevel__*`): они идут закомментированными, с пометкой «менять осознанно» и предупреждением про массивы в env (индексы подряд от нуля, без пустых значений). Строка подключения `ConnectionStrings__Default` обязательна, иначе процесс падает на старте с понятной ошибкой.
 
 `Jwt__Secret` (≥ 32 байта, `openssl rand -base64 48`) — ключ подписи HS256. В Development его можно не задавать: будет сгенерирован эфемерный ключ на запуск (в логе — warning, токены не переживут рестарт). В любом другом окружении отсутствие валидного секрета останавливает старт: иначе API принимал бы токены, подписанные известным всем ключом. Ключа `Auth__DefaultUserId` в конфигурации больше нет: Id демо-учётки — константа в коде (`DemoUser.Id`), а владелец запроса всегда берётся из claim `sub`.
 

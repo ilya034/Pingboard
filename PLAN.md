@@ -404,7 +404,7 @@ volumes: { pgdata: {} }
 | # | Фактор | Как в проекте |
 |---|---|---|
 | I | Codebase | один git-репозиторий (бек + фронт + deploy); dev-стенд и «прод» — два deploy'я одной кодовой базы |
-| II | Dependencies | всё объявлено и запинено: `Directory.Packages.props` (центральные версии) + `CentralPackageTransitivePinningEnabled`, в рантайм-образе нет SDK; у фронта — `package-lock.json` + `npm ci`. Lock-файлов NuGet нет (`RestorePackagesWithLockFile` не задан) — это открытый пункт, см. [REVIEW-12FACTORS.md](REVIEW-12FACTORS.md) |
+| II | Dependencies | всё объявлено и запинено: `Directory.Packages.props` (центральные версии) + `CentralPackageTransitivePinningEnabled`, транзитивные версии — в `packages.lock.json` (`RestorePackagesWithLockFile=true` рядом с каждым проектом, restore образа идёт `--locked-mode`), в рантайм-образе нет SDK; у фронта — `package-lock.json` + `npm ci` |
 | III | Config | все настройки из env (таблица §8); `.env` не в git, в репо `.env.example`; секреты не в `appsettings` |
 | IV | Backing services | Postgres (и позже SMTP/Telegram) «прикреплены» env-строками; смена инстанса = смена переменной, код не трогаем |
 | V | Build, release, run | build = multi-stage Dockerfile; release = тот же Dockerfile собирается под тегом `IMAGE_TAG` (`pingboard-api:<тег>`, один артефакт на `api`/`worker`/`migrate`, версия — ещё и в OCI-label) + явный прогон миграций (`--migrate` процесс); run = compose (потом k8s). Продвижение из реестра/CI — расширение №4, migrate-bundle — M5 |
