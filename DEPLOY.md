@@ -445,7 +445,7 @@ curl -i http://127.0.0.1:8080/readyz
 **Схема**
 
 ```
-GitHub (push) → Actions: test (79) → build-push → GHCR (ghcr.io/<owner>/pingboard-api:sha-<commit>)
+GitHub (push) → Actions: test (90) → build-push → GHCR (ghcr.io/<owner>/pingboard-api:sha-<commit>)
                                                                         │
                                       workflow_dispatch ────────────────┘
                                               │ ssh

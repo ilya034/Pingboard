@@ -447,3 +447,75 @@ kubectl apply -k k8s/overlays/dev && kubectl -n pingboard rollout status deploym
 Миграции при этом **вперёд не откатываются** (`--migrate` умеет только применять) — в инструкции
 это оговорено так же, как для compose: откат схемы = восстановление из дампа или
 `dotnet ef migrations script <от> <до>`, а перед обновлением с миграцией обязателен бэкап.
+
+---
+
+## 17. Финальная проверка на соответствие 12 факторам
+
+Отдельный проход по чистому дереву (`679c858`, `git status` пуст) — уже не «заявление против кода»,
+как в §2, а «код против манифеста 12factor.net». Ничего не предполагалось: каждый вердикт ниже
+опирается на команду или файл, названные в колонке «Чем проверено». Историю правок §3–§16 это не
+отменяет: там видно, как пункт закрывался, здесь — состояние на финале.
+
+### 17.1 Чем проверено
+
+```
+dotnet build backend/Pingboard.sln -m:1                → 0 предупреждений, 0 ошибок (TreatWarningsAsErrors=true)
+in-process раннер (backend/scripts/TestRunner)          → Domain 32/32, Application 58/58, ВСЕ ТЕСТЫ ПРОШЛИ (90)
+frontend: npm run typecheck / lint / test:sandbox       → 0 / 0 / 30 тестов в 3 файлах
+  (npm test без *:sandbox падает на spawn EPERM — граница песочницы из SANDBOX §6, не код)
+docker compose config × 5 наборов                       → exit 0 (базовый; scale; prod+migrate+web-prod; registry+vps; web-prod)
+docker compose config без IMAGE/IMAGE_TAG               → «required variable IMAGE is missing a value», exit 1
+kubectl kustomize k8s/overlays/{dev,prod}               → по 12 объектов, без ошибок (kustomize v5.8.1)
+drift-тест фактора II                                   → добавление PackageReference без lock-файла даёт NU1004 + NU1010, exit 1; откат чист
+git ls-files / check-ignore                             → .env и артефакты сборки не в индексе; 8 packages.lock.json в индексе
+```
+
+**Чего по-прежнему нельзя проверить отсюда** (та же граница, что в §1 и §13): сборка образов и
+`docker compose up`, применение миграций к живой БД, реальные SIGTERM/SIGKILL, балансировка nginx
+между репликами, первый прогон CI, применение манифестов в кластер. Docker-демон недоступен
+(`permission denied … npipe:////./pipe/dockerDesktopLinuxEngine`), поэтому все вердикты ниже —
+статическая проверка кода, конфига и рендера, а не эксперимент на стенде.
+
+### 17.2 Вердикты
+
+| # | Фактор | Вердикт | Чем проверено |
+|---|---|---|---|
+| I | Codebase | ✅ | один `.git` (`backend/` + `frontend/` + `deploy/` + `k8s/`); `git ls-files` без `bin/`, `obj/`, `*.log`; `.env` под `.gitignore:16` (`git check-ignore`); dev и прод — наборы `docker-compose.yml` / `+prod.yml` / `+registry.yml` над одним кодом |
+| II | Dependencies | ✅ | `Directory.Packages.props`: 23 `<PackageVersion>`, `CentralPackageTransitivePinningEnabled=true`; 8 закоммиченных `packages.lock.json` — во всех 20 узлах Api есть `resolved`, нет `contentHash` только у 3 project-ссылок (так и должно быть); рантайм — `aspnet:10.0`, SDK только в build-стейдже; фронт — `package-lock.json` + `npm ci`. **Drift-тест:** лишний `PackageReference` → `NU1004`/`NU1010`, exit 1 |
+| III | Config | ✅ | `.env` не в git и не в контексте сборки (`.dockerignore`); в `appsettings*.json` обоих процессов секретов нет; отсутствие `ConnectionStrings__Default` роняет старт с текстом (`DependencyInjection.cs:26-28`); у воркера env — последний провайдер (`WorkerHost.cs:69-74`); секрет подписи вне Development обязателен (`JwtSecretProvisioning.cs:34-39`); `SeedOnStart` вне Development запрещён (`Program.cs:105-108`); прод-`.env` генерируется workflow'ом под `umask 077` |
+| IV | Backing services | ✅ | единственный источник строки — `ConnectionStrings__Default`; захардкоженных хостов БД в коде нет — только `launchSettings.json` (локальный запуск из IDE) и design-time фабрика `UptimeDbContextFactory.cs:17` (строка на этапе `migrations add` не используется); readiness ходит в БД портом `IDatabaseHealthProbe`, а не EF в Api; в k8s доступ к БД ограничен NetworkPolicy |
+| V | Build, release, run | ✅ | multi-stage (`Dockerfile.api`: sdk → aspnet), `dotnet restore --locked-mode` до сборки кода; `image: pingboard-api:${IMAGE_TAG:-local}` у `api`/`worker`/`migrate` + OCI-label версии; CI публикует `sha-<commit>` в GHCR, на VPS только `pull` (`docker-compose.registry.yml`, `build: !reset null` — проверено рендером: секции `build` не остаётся); откат — переключение тега (DEPLOY §5.5, §5.10) |
+| VI | Processes | ✅ | серверных сессий нет, JWT; `IHostedService` в Api не регистрируется (grep); расписание — состояние в БД (`MonitorRepository.ListDueAsync`); процесса-локальное состояние ограничено счётчиками rate limit, эфемерным dev-ключом, флагом дедупликации лога readiness и флагом `_heartbeatUnavailableLogged` воркера; в k8s `/tmp` воркера — `emptyDir` пода |
+| VII | Port binding | ✅ | `ENV ASPNETCORE_URLS=http://+:8080` в образе и в compose; `UseHttpsRedirection` в коде нет (TLS — на прокси, что и правильно за терминатором); у воркера порта нет; фронт не ходит на захардкоженный хост — `baseURL: '/api'` (`client.ts:73`) и dev-прокси Vite на `localhost:8080` только в dev-конфиге |
+| VIII | Concurrency | ✅ | один образ — три команды (`api`, `worker`, `migrate`); воркер stateless, захват мониторов условным `UPDATE` (`MonitorRepository.cs:52-57`); реплики Api — `docker-compose.scale.yml` (`ports: !reset []`, рендер без `published`) либо `replicas` в k8s. Границы задокументированы: rate limit в памяти процесса, `nginx -s reload` после добавления реплики, `Jwt__Secret` обязателен явно |
+| IX | Disposability | ✅ | Api — `HostOptions.ShutdownTimeout=10s` (`Program.cs:68`); воркер — `PosixSignalRegistration` для SIGTERM + бюджет 10 с (`WorkerHost.cs:30,134,187-194`); compose — `stop_grace_period: 15s` у `api` и `worker` (рендер); k8s — `terminationGracePeriodSeconds: 30` у всех workload'ов; у воркера healthcheck — режим `--self-check` того же бинарника, не shell |
+| X | Dev/prod parity | ✅ | те же Dockerfile'ы и код; различие — только env, лимиты и способ попадания образа (локально `--build` / `pull` из GHCR / `kubectl apply -k`); в k8s `MigrateOnStart=false` в базе ConfigMap и `true` только в dev-оверлее (проверено рендером обоих оверлеев); список отличий — DEPLOY §5.9 |
+| XI | Logs | ✅ | Api — `ClearProviders()` + `AddJsonConsole` с UTC (`Program.cs:31-37`); воркер — свой провайдер в `Console.Out` с теми же ключами (`JsonConsoleLogger.cs`), уровни из конфигурации; файловых синков нет (единственная запись в файл — пульс в `/tmp`), в nginx `access_log /dev/stdout`, `error_log /dev/stderr`; ротация — забота платформы (docker `json-file` 10 МБ × 3 / kubelet) |
+| XII | Admin processes | ✅ | `--migrate` — отдельный режим той же сборки, до `builder.Build()` основного хоста (`Program.cs:11-22`); профиль `migrate` (`restart: "no"`, `MigrateOnStart=false` — проверено рендером); k8s Job `ttlSecondsAfterFinished: 3600`; VPS-выкат: `docker compose --profile migrate run --rm migrate` **до** `up -d`; сид — админ-задача Development (`SeedOnStart` вне Development → исключение); `dotnet ef migrations add` — вне рантайма, где SDK нет |
+
+### 17.3 Правки этого прохода
+
+| Фактор | Что было | Что стало |
+|---|---|---|
+| XII | в `docker-compose.prod.yml` сервис `migrate` наследовал dev-значение `MigrateOnStart=true` из `.env`: на поведение не влияло (`--migrate` выходит до ветки старта), но в `docker compose config` рядом с прод-процессом стоял dev-флаг | добавлено `MigrateOnStart: "false"`; повторный рендер: `api` — `false`, `migrate` — `false`, `worker` — значение из `.env` (воркер эту ручку не читает) |
+| X | PLAN §10 фактор X: «два deploy'я одного образа, который собирается на месте (`--build`)» — после §9 прод-путь собирается не на месте, а в CI | формулировка сведена с §9: «отличается только то, где он собран (локально либо CI → реестр) и env» |
+| III, XII | устаревшие числа и статусы в доках: `test (79)` в DEPLOY §5.9, «79/79» в README §10, «79 тестов» в PLAN §11, `/metrics` в таблице стека PLAN §2 подан как «из коробки» | `90` в трёх местах; в PLAN §2 у `/metrics` явно «пока нет, TODO, M5» (совпадает с README §6.4 и DEPLOY §5.11) |
+
+### 17.4 Что остаётся (не блокирует соответствие)
+
+| Фактор | Наблюдение | Почему это не расхождение | Куда смотреть |
+|---|---|---|---|
+| IX | `preStop: sh -c "sleep 3"` у Api в k8s — единственное место, где проба/хук зависит от `sh` в образе (у воркера этот класс зависимости снят §11) | `preStop` — оптимизация против редких 502 при rolling update, а не условие корректной остановки: без него Kestrel всё равно получает SIGTERM и укладывается в бюджет 10 с | заменять при переходе на distroless/chiseled: убрать `preStop` (тогда окно 502 возвращается) либо заменить на HTTP-хук, когда появится endpoint «начать остановку» |
+| IV, III | design-time строка подключения в `UptimeDbContextFactory.cs:17` — единственный «дефолт в коде» для БД; строка в `Properties/launchSettings.json` (dev, `Password=pingboard`) | обе живут вне рантайм-пути: фабрика нужна только `dotnet ef` и строку не используют, `launchSettings` читает только `dotnet run` из IDE | при случае заменить на явную ошибку «задайте `ConnectionStrings__Default`» |
+| VI | `_heartbeatUnavailableLogged` в `DueCheckWorker` — четвёртый элемент процесса-локального состояния, в PLAN §10 (фактор VI) перечислены три | это флаг «уже предупредили один раз», на поведение не влияет — как и флаг readiness | при следующей правке PLAN §10 добавить в перечень |
+| VIII | захват мониторов опирается на равенство штампа времени `LastCheckedAt == now` | сужение уже задокументировано (§4.2 п.5), закрывается `FOR UPDATE SKIP LOCKED` в M5 | M5 |
+| VIII | rate limit в памяти процесса | задокументированная граница (§4.2 п.4), для одного инстанса корректна | M5 (распределённый счётчик) |
+
+### 17.5 Итог
+
+Все двенадцать факторов соответствуют заявленному, каждая проверка воспроизводима командами из
+§17.1. Ни один пункт не закрыт «формулировкой вместо кода»: расхождения, найденные по ходу, либо
+исправлены в коде и конфиге (§4.1, §8, §9–§16, §17.3), либо честно стоят в §4.2 и §17.4 с
+приоритетом и предложением. Открытые пункты — это осознанные границы MVP (M5) плюс то, что
+проверяется только на живом стенде; порядок первого живого прогона — в §13.

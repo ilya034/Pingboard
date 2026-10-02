@@ -25,7 +25,7 @@
 | ORM/БД | EF Core 10 + Npgsql, миграции EF | миграции = фактор XII |
 | Валидация | FluentValidation | внутри Application-слоя |
 | Auth | JWT Bearer + BCrypt.Net-Next | без тяжёлого ASP.NET Identity |
-| Метрики | prometheus-net.AspNetCore | `/metrics` из коробки |
+| Метрики | prometheus-net.AspNetCore | `/metrics` пока нет: пакета нет в оффлайн-фиде, в `HealthEndpoints` оставлен TODO (M5) |
 | Логи | встроенный `AddJsonConsole()` | JSON в stdout; Serilog — опция на потом |
 | Время | `System.TimeProvider` | встроенная тестируемая абстракция вместо своего IClock |
 | Тесты | xUnit + фейки портов | Testcontainers — опция |
@@ -412,7 +412,7 @@ volumes: { pgdata: {} }
 | VII | Port binding | Kestrel слушает `ASPNETCORE_URLS=http://+:8080`; приложение самодостаточно |
 | VIII | Concurrency | два process types из одного образа: `api` (stateless, JWT) и `worker` (расписание — в БД, захват мониторов — условным `UPDATE`). Реплики воркера дублей не дают (§6); реплики Api запускаются надстройкой `deploy/docker-compose.scale.yml` (снимает фиксированный порт) при явно заданном `Jwt__Secret` — см. §14 и DEPLOY.md §5.7 |
 | IX | Disposability | SIGTERM → graceful shutdown (воркер доигрывает итерацию, `ShutdownTimeout=10s`); в compose у `api`/`worker` `stop_grace_period: 15s`, чтобы SIGKILL не пришёл раньше бюджета приложения; быстрые healthcheck'и |
-| X | Dev/prod parity | один и тот же Dockerfile и код: дев-стенд и «прод» — два deploy'я одного образа, который собирается на месте (`--build`); отличия сведены к env (`ASPNETCORE_ENVIRONMENT`, `MigrateOnStart`, `API_BIND`, `PGDATA_PATH`) |
+| X | Dev/prod parity | один и тот же Dockerfile и код: дев-стенд и «прод» — два deploy'я одного образа; отличается только то, где он собран (локально `--build` либо CI → реестр, `deploy/docker-compose.registry.yml`) и env (`ASPNETCORE_ENVIRONMENT`, `MigrateOnStart`, `API_BIND`, `PGDATA_PATH`) |
 | XI | Logs | только stdout/stderr, JSON (`AddJsonConsole`); никаких файлов; собирает Docker (потом Loki) |
 | XII | Admin processes | `dotnet ef migrations add`, сид (`SeedDefaultUserAsync`, вне Development запрещён), `dotnet Pingboard.Api.dll --migrate` — one-off процессы той же сборки, не «фоновые фичи» приложения; migrate-bundle вместо этого режима — M5 |
 
@@ -468,7 +468,7 @@ volumes: { pgdata: {} }
 - [x] JSON-логи в stdout у Api и воркера
 - [x] graceful shutdown (`docker compose stop` не проверялся — Docker недоступен; поведение
       закрыто `ShutdownTimeout` и smoke-запуском процессов)
-- [x] пара юнит-тестов (валидация Monitor, `RunDueChecks` на фейках) — на деле 79 тестов
+- [x] пара юнит-тестов (валидация Monitor, `RunDueChecks` на фейках) — на деле 90 тестов
 - [x] README: запуск, env-переменные, таблица 12 факторов + DEPLOY.md
 - [ ] `/metrics` (prometheus-net — пакета нет в оффлайн-фиде, в коде оставлен TODO)
 - [ ] migrate-bundle вместо `MigrateOnStart` (сейчас one-off процесс `--migrate` из того же образа)

@@ -48,6 +48,11 @@ services:
     env_file: ../.env
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      # Без этой строки сервис унаследовал бы dev-значение `MigrateOnStart=true` из `.env`:
+      # на поведение это не влияет (команда `--migrate` выходит до ветки старта с миграциями),
+      # но в `docker compose config` рядом с «прод»-процессом стоял бы dev-флаг — ровно то,
+      # расхождение, которое фактор XII и разделяет.
+      MigrateOnStart: "false"
     depends_on:
       postgres:
         condition: service_healthy
