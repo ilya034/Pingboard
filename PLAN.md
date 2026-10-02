@@ -12,7 +12,7 @@
 
 - полноценный клиент-сервер: SPA + REST API + БД;
 - CRUD (мониторы), REST, PostgreSQL, JWT-авторизация (отдельная отключаемая веха);
-- **два типа процессов (web + worker)** — наглядная демонстрация факторов VI (stateless) и VIII (concurrency);
+- **два типа процессов из одного образа (`api` + `worker`)** — наглядная демонстрация факторов VI (stateless) и VIII (concurrency); `web` — это отдельный образ со статикой SPA и nginx, а не третий process type;
 - приложение само про наблюдаемость и uptime — раздел отчёта «пишется сам»;
 - не ресурсоёмко: всё приложение + БД укладываются в ~150–200 МБ RAM, старт контейнеров — секунды.
 
@@ -265,7 +265,11 @@ protected override async Task ExecuteAsync(CancellationToken ct)
 Свойства, которые и есть суть 12 факторов:
 
 - весь «планировщик» — это запрос к БД: воркер **stateless**, рестарт/убийство в любой момент ничего не ломает (VI, IX);
-- несколько воркеров дадут дубли проверок — фиксится `FOR UPDATE SKIP LOCKED` в `ListDueAsync` (расширение №6 в §12, для MVP один воркер);
+- несколько воркеров **дублей не пишут**: `ListDueAsync` — два шага, выборка кандидатов и *захват* условным
+  `UPDATE … WHERE last_checked_at IS NULL OR last_checked_at + interval <= now`, а возвращаются только строки,
+  обновлённые собственным штампом `now` (CAS без явных блокировок). Сосед, взявший те же кандидаты, получает
+  пустой результат. Цена: процесс, умерший сразу после захвата, теряет один интервал по этим мониторам —
+  ровно это и снимает `FOR UPDATE SKIP LOCKED` (расширение №6 в §12: оптимизация, а не условие корректности);
 - SIGTERM → `stoppingToken` срабатывает, итерация доигрывается, процесс выходит чисто (`HostOptions.ShutdownTimeout = 10s`).
 
 ## 7. Фронтенд (React + Vite)
@@ -406,7 +410,7 @@ volumes: { pgdata: {} }
 | V | Build, release, run | build = multi-stage Dockerfile; release = тег образа + прогон миграций (bundle); run = compose (потом k8s) |
 | VI | Processes | stateless: JWT вместо серверных сессий; «расписание» воркера — данные в БД, не таймеры в памяти |
 | VII | Port binding | Kestrel слушает `ASPNETCORE_URLS=http://+:8080`; приложение самодостаточно |
-| VIII | Concurrency | web и worker — два process types из одного образа; api скейлится горизонтально: `docker compose up --scale api=2` |
+| VIII | Concurrency | два process types из одного образа: `api` (stateless, JWT) и `worker` (расписание — в БД, захват мониторов — условным `UPDATE`). Реплики воркера дублей не дают (§6); репликам Api мешают фиксированная публикация хост-порта (`API_BIND`) и эфемерный dev-ключ подписи — секрет нужен явный — рецепт в §14 и DEPLOY.md §5.7 |
 | IX | Disposability | SIGTERM → graceful shutdown (воркер доигрывает итерацию, `ShutdownTimeout=10s`); быстрые healthcheck'и |
 | X | Dev/prod parity | локально крутятся те же образы, что на VPS; dev от prod отличается только env |
 | XI | Logs | только stdout/stderr, JSON (`AddJsonConsole`); никаких файлов; собирает Docker (потом Loki) |
@@ -481,7 +485,7 @@ volumes: { pgdata: {} }
 | 3 | OpenTelemetry → OTLP → Jaeger/Tempo | распределённый трейсинг |
 | 4 | CI/CD: GitHub Actions (build + test + push в GHCR) → deploy на VPS по SSH | конвейер доставки |
 | 5 | Нагрузочный тест k6 против API | перфоманс-инженерия |
-| 6 | `FOR UPDATE SKIP LOCKED` в `ListDueAsync` → несколько реплик воркера | конкурентность, SQL |
+| 6 | `FOR UPDATE SKIP LOCKED` в `ListDueAsync` → реплики воркера без «пропущенного интервала» при падении процесса и без второго запроса на выборку захваченных строк (дублей нет уже сейчас — §6) | конкурентность, SQL |
 | 7 | Ретеншн: воркер чистит `checks` старше N дней | эксплуатация данных |
 | 8 | Публичная статус-страница (без auth) | продукт |
 | 9 | Kubernetes-манифесты/Helm: Deployment api+worker, probes, HPA | контейнеры в бою |
@@ -504,7 +508,7 @@ volumes: { pgdata: {} }
 2. Добавить два монитора: живой (`https://example.com`) и падающий (`https://httpstat.us/500`) → бейджи green/red, у второго растёт downtime.
 3. Открыть страницу монитора: спарклайн задержек, история проверок.
 4. `docker compose restart worker` → ничего не потерялось, чеки продолжаются → **факторы VI/IX**.
-5. `docker compose up --scale api=2` → приложение работает без изменений кода → **фактор VIII**.
+5. Масштабирование → **фактор VIII**. Воркер: `docker compose up -d --scale worker=2` работает как есть (дублей не будет — захват в `ListDueAsync`). Api: сначала снять публикацию хост-порта — при `ports: "${API_BIND:-0.0.0.0:8080}:8080"` вторая реплика не забиндит 8080, и `--scale api=2` упадёт; наружу Api и так виден через nginx (`/api`, `/healthz`, `/readyz`). Плюс `Jwt__Secret` должен быть задан явно (иначе у реплик разные эфемерные ключи). После добавления реплики — `docker compose exec web nginx -s reload`: nginx резолвит `api:8080` один раз при старте.
 6. `docker compose logs -f api` → JSON-логи в stdout → **фактор XI**.
 7. `docker compose stop api` → в логах graceful shutdown → **фактор IX**.
 8. Показать `.env.example` и место чтения конфига → **факторы III/IV**.

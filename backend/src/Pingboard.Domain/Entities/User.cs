@@ -3,7 +3,7 @@ using Pingboard.Domain.Common;
 namespace Pingboard.Domain.Entities;
 
 /// <summary>
-///     Владелец мониторов. Хранится только хеш пароля — открытого пароля в домене нет.
+///     Владелец мониторов.
 /// </summary>
 public sealed class User : Entity<Guid>
 {
@@ -11,7 +11,7 @@ public sealed class User : Entity<Guid>
 
     private User()
     {
-    } // для материализации EF Core
+    } // EF Core
 
     private User(Guid id, string email, string passwordHash, DateTimeOffset createdAt)
     {
@@ -39,7 +39,7 @@ public sealed class User : Entity<Guid>
     /// <summary>Email нормализуется к нижнему регистру — иначе UNIQUE не спасёт от дублей вида A@b / a@B.</summary>
     public static string NormalizeEmail(string? email)
     {
-        if (string.IsNullOrWhiteSpace(email)) throw DomainValidationException.For(nameof(Email), "email обязателен");
+        if (string.IsNullOrWhiteSpace(email)) throw DomainValidationException.For(nameof(Email), "email is required");
 
         var trimmed = email.Trim().ToLowerInvariant();
 
@@ -48,7 +48,7 @@ public sealed class User : Entity<Guid>
         // а заведомо недоставляемый адрес (и, например, «a@b» ломает представление о домене).
         if (trimmed.Length > EmailMaxLength ||
             trimmed.Any(char.IsWhiteSpace) ||
-            trimmed.Count(c => c == '@') != 1) throw DomainValidationException.For(nameof(Email), "некорректный email");
+            trimmed.Count(c => c == '@') != 1) throw DomainValidationException.For(nameof(Email), "email is invalid");
 
         var at = trimmed.IndexOf('@');
         var local = trimmed[..at];
@@ -58,7 +58,7 @@ public sealed class User : Entity<Guid>
             domain.StartsWith('.') || domain.EndsWith('.') ||
             domain.Contains("..", StringComparison.Ordinal) ||
             !domain.Contains('.', StringComparison.Ordinal))
-            throw DomainValidationException.For(nameof(Email), "некорректный email");
+            throw DomainValidationException.For(nameof(Email), "email is invalid");
 
         return trimmed;
     }
@@ -66,7 +66,7 @@ public sealed class User : Entity<Guid>
     private static string ValidateHash(string? passwordHash)
     {
         if (string.IsNullOrWhiteSpace(passwordHash))
-            throw DomainValidationException.For(nameof(PasswordHash), "хеш пароля обязателен");
+            throw DomainValidationException.For(nameof(PasswordHash), "password hash is required");
 
         return passwordHash;
     }

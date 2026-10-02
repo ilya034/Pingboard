@@ -9,7 +9,7 @@ public sealed class CheckResult
 {
     private CheckResult()
     {
-    } // для материализации EF Core
+    } // EF Core
 
     private CheckResult(Guid monitorId, DateTimeOffset checkedAt, ProbeOutcome outcome)
     {
@@ -39,15 +39,13 @@ public sealed class CheckResult
     /// <summary>Единственная фабрика: снаружи можно прийти только с результатом пробера.</summary>
     public static CheckResult FromProbe(Guid monitorId, DateTimeOffset checkedAt, ProbeOutcome outcome)
     {
-        if (monitorId == Guid.Empty) throw DomainValidationException.For(nameof(monitorId), "не задан монитор");
+        if (monitorId == Guid.Empty) throw DomainValidationException.For(nameof(monitorId), "monitor is required");
 
         if (outcome.Ok && outcome.StatusCode is null)
-            throw DomainValidationException.For(nameof(outcome), "успешная проверка обязана иметь статус-код");
-
-        // Отрицательная задержка — это не «быстрый ответ», а битый замер (переполнение
-        // счётчика, путаница единиц). Лучше уронить запись, чем показать её на дашборде.
+            throw DomainValidationException.For(nameof(outcome), "probe must have status code if it is ok");
+        
         if (outcome.LatencyMs is < 0)
-            throw DomainValidationException.For(nameof(outcome), "задержка не может быть отрицательной");
+            throw DomainValidationException.For(nameof(outcome), "latency cannot be negative");
 
         return new CheckResult(monitorId, checkedAt, outcome);
     }

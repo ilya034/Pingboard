@@ -1,6 +1,5 @@
 namespace Pingboard.Domain.Common;
 
-/// <summary>Базовый тип сущности: идентичность по <see cref="Id" />.</summary>
 public abstract class Entity<TId> where TId : notnull
 {
     public TId Id { get; protected set; } = default!;

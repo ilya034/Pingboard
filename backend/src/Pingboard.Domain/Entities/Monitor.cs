@@ -3,7 +3,7 @@ using Pingboard.Domain.Common;
 namespace Pingboard.Domain.Entities;
 
 /// <summary>
-///     Монитор — то, что пользователь поставил «на наблюдение».
+///     Монитор - то, что пользователь поставил «на наблюдение».
 ///     Все переходы состояния идут через фабрику <see cref="Create" /> и методы
 ///     <see cref="ApplyUpdate" /> / <see cref="RecordCheck" /> / <see cref="SetEnabled" />:
 ///     статусные поля нельзя испортить снаружи.
@@ -12,7 +12,7 @@ public sealed class Monitor : Entity<Guid>
 {
     private Monitor()
     {
-    } // для материализации EF Core
+    } // EF Core
 
     private Monitor(Guid id, Guid ownerId, string name, string url, int intervalSeconds, bool enabled,
         DateTimeOffset now)
@@ -107,11 +107,11 @@ public sealed class Monitor : Entity<Guid>
 
     private static string ValidateName(string? name)
     {
-        if (string.IsNullOrWhiteSpace(name)) throw DomainValidationException.For(nameof(Name), "имя обязательно");
+        if (string.IsNullOrWhiteSpace(name)) throw DomainValidationException.For(nameof(Name), "name is required");
 
         var trimmed = name.Trim();
         if (trimmed.Length > MonitorRules.NameMaxLength)
-            throw DomainValidationException.For(nameof(Name), $"не длиннее {MonitorRules.NameMaxLength} символов");
+            throw DomainValidationException.For(nameof(Name), $"not longer than {MonitorRules.NameMaxLength} characters");
 
         return trimmed;
     }
@@ -119,7 +119,7 @@ public sealed class Monitor : Entity<Guid>
     private static string ValidateUrl(string? url)
     {
         if (!MonitorRules.IsSupportedUrl(url))
-            throw DomainValidationException.For(nameof(Url), "нужен абсолютный URL со схемой http или https");
+            throw DomainValidationException.For(nameof(Url), "absolute URL with http or https scheme is required");
 
         return url!.Trim();
     }
@@ -129,7 +129,7 @@ public sealed class Monitor : Entity<Guid>
         if (!MonitorRules.IsValidInterval(intervalSeconds))
             throw DomainValidationException.For(
                 nameof(IntervalSeconds),
-                $"интервал должен быть в диапазоне {MonitorRules.IntervalSecondsMin}..{MonitorRules.IntervalSecondsMax} секунд");
+                $"interval must be in the range {MonitorRules.IntervalSecondsMin}..{MonitorRules.IntervalSecondsMax} seconds");
 
         return intervalSeconds;
     }
