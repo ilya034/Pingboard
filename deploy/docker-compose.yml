@@ -1,11 +1,13 @@
 # deploy/docker-compose.yml — локальный стенд: postgres + api + worker + web.
-# Все значения берутся из .env (фактор III/IV). Запуск:
-#   docker compose --env-file ../.env -f deploy/docker-compose.yml up --build
+# Все значения берутся из .env (фактор III/IV). Запускать из корня:
+#   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 #
 # ВАЖНО: `--env-file` указывает на корневой .env, потому что подстановка ${...} в самом
 # compose-файле читает .env из каталога compose-файла (deploy/), а не из корня репозитория.
-# Без флага POSTGRES_* развернулись бы в пустые значения — у postgres не было бы ни
-# пользователя, ни базы. Значения ниже — те же умолчания, что и в .env.example.
+# Без флага POSTGRES_* в сервисе postgres остались бы умолчаниями, а строка подключения Api
+# (ConnectionStrings__Default) пришла бы из .env — и Api не подключился бы к БД.
+# Проверка подстановки: docker compose --env-file .env -f deploy/docker-compose.yml config
+# Значения ниже — те же умолчания, что и в .env.example.
 name: pingboard
 
 services:
@@ -16,7 +18,17 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pingboard}
       POSTGRES_DB: ${POSTGRES_DB:-pingboard}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # ВАЖНО: путь монтирования обязан совпадать с версией образа.
+      # PostgreSQL 18+ объявляет VOLUME /var/lib/postgresql, а PGDATA у него версионный —
+      # /var/lib/postgresql/18/docker. Старый путь /var/lib/postgresql/data (норма для 17
+      # и ниже) в 18+ роняет entrypoint:
+      #   Error: in 18+, these Docker images are configured to store database data in a format
+      #   which is compatible with "pg_ctlcluster" ... there appears to be PostgreSQL data in:
+      #   /var/lib/postgresql/data (unused mount/volume)
+      # Контейнер выходит с кодом 1, и compose сообщает «dependency failed to start: container
+      # ... is unhealthy». Проверка живёт в docker-entrypoint.sh: он ищет PG_VERSION в $PGDATA,
+      # а затем отдельно проверяет, не смонтирован ли том по старому пути.
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -35,7 +47,7 @@ services:
       ASPNETCORE_URLS: http://+:8080
     ports:
       # На dev-стенде Api нужен с хоста (curl, smoke-скрипты), поэтому публикуем; на «проде»
-      # этот же параметр задаётся как 127.0.0.1:8081 (см. .env.example) — снаружи только nginx.
+      # этот же параметр задаётся как 127.0.0.1:8080 (см. .env.example) — снаружи только nginx.
       - "${API_BIND:-0.0.0.0:8080}:8080"
     depends_on:
       postgres:
@@ -72,9 +84,9 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.web
-    # SPA появится в M3 (каталог frontend/ пока пуст, собирать нечего), поэтому web — профиль:
-    # без него `docker compose up` поднимает postgres + api + worker, а не падает на сборке
-    # несуществующего фронта. Когда фронт появится: docker compose --profile web up --build.
+    # web — отдельный профиль: `docker compose up` поднимает только postgres + api + worker
+    # (быстрая проверка API и воркера), а SPA — `--profile web`, чтобы не собирать node-образ
+    # на каждый прогон. Фронт (M3) уже есть: frontend/ + deploy/Dockerfile.web.
     profiles: ["web"]
     ports:
       # 8081, а не 8080: 8080 на dev-стенде занят самим Api (прямой доступ для curl).

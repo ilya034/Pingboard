@@ -273,16 +273,22 @@ protected override async Task ExecuteAsync(CancellationToken ct)
 ```
 frontend/
 ├─ index.html
+├─ package.json            # скрипты dev/build (+ :sandbox-варианты, см. SANDBOX.md §8)
+├─ tsconfig.json
 ├─ vite.config.ts          # dev-прокси: /api → http://localhost:8080
 └─ src/
-   ├─ main.tsx             # QueryClientProvider + Router
+   ├─ main.tsx             # QueryClientProvider + AuthProvider + Router
+   ├─ App.tsx              # маршруты (логин снаружи рамки, остальное — под RequireAuth)
    ├─ api/
-   │  ├─ client.ts         # axios: Bearer-интерсептор, 401 → на логин
+   │  ├─ client.ts         # axios: Bearer-интерсептор, 401 → на логин, ProblemDetails → ApiFailure
+   │  ├─ types.ts          # типы ответов = зеркало DTO Application
    │  ├─ auth.ts           # login/register
-   │  └─ monitors.ts       # CRUD + история, типы ответов
+   │  └─ monitors.ts       # CRUD + история
    ├─ hooks/               # useAuth, useMonitors (refetchInterval: 10_000), useChecks
+   ├─ lib/format.ts        # время, задержка, uptime, состояние монитора
    ├─ pages/               # LoginPage, DashboardPage, MonitorDetailPage
-   ├─ components/          # Layout, StatusBadge, UptimeBar, Sparkline, MonitorForm
+   ├─ components/          # Layout, RequireAuth, StatusBadge, UptimeBar, Sparkline,
+   │                       # MonitorForm, FailureBanner, FieldErrorText
    └─ styles.css
 ```
 
@@ -360,7 +366,7 @@ services:
   postgres:
     image: postgres:18-alpine
     environment: { POSTGRES_USER: ${POSTGRES_USER}, POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}, POSTGRES_DB: ${POSTGRES_DB} }
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes: [pgdata:/var/lib/postgresql]   # PG18: версионный PGDATA, см. docker-compose.yml
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"], interval: 5s, retries: 12 }
     # порт наружу не публикуем — только внутри сети compose
 
@@ -410,43 +416,60 @@ volumes: { pgdata: {} }
 
 ## 11. Вехи
 
-**M0. Скелет — ≈ полдня**
-- [ ] git init, sln, 5 проектов, правило зависимостей собирается
-- [ ] Dockerfile.api + compose (postgres/api/web-заглушка), первая EF-миграция, `MigrateOnStart`
-- [ ] сид-пользователь, `/healthz`
+**M0. Скелет — ≈ полдня** ✅ сделано
+- [x] git init, sln, 5 проектов, правило зависимостей собирается
+- [x] Dockerfile.api + compose (postgres/api/web-заглушка), первая EF-миграция, `MigrateOnStart`
+- [x] сид-пользователь, `/healthz`
 - Готово, когда: `docker compose up` → все сервисы зелёные, `GET /healthz` → 200.
+- Оговорка: `docker compose up` на машине сборки не прогонялся (нет доступа к реестру образов) —
+  собираемость и запуск проверены без Docker. Порядок развёртывания — [DEPLOY.md](DEPLOY.md).
 
-**M1. CRUD мониторов — 1 вечер**
-- [ ] Domain: Monitor/CheckResult + валидация в фабриках
-- [ ] Application: 5 сценариев + валидаторы + порты
-- [ ] Infrastructure: DbContext, Fluent-конфигурации, миграция, репозитории
-- [ ] Api: endpoints + Swagger UI
+**M1. CRUD мониторов — 1 вечер** ✅ сделано
+- [x] Domain: Monitor/CheckResult + валидация в фабриках
+- [x] Application: 5 сценариев + валидаторы + порты
+- [x] Infrastructure: DbContext, Fluent-конфигурации, миграция, репозитории
+- [x] Api: endpoints + Swagger UI
 - Готово, когда: полный CRUD через Swagger, строки видны в psql.
+- Оговорка: «строки видны в psql» на живой БД не проверялось (нет Postgres) — SQL проверен
+  сгенерированным запросом (`DatabaseContractTests`).
 
-**M2. Воркер и история — 1 вечер**
-- [ ] `HttpProbeService` (HEAD→GET, таймаут, латентность)
-- [ ] `RunDueChecks` + сервис `worker` в compose
-- [ ] `GET /api/monitors/{id}/checks`, `uptime24h` в списке
+**M2. Воркер и история — 1 вечер** ✅ сделано
+- [x] `HttpProbeService` (HEAD→GET, таймаут, латентность)
+- [x] `RunDueChecks` + сервис `worker` в compose
+- [x] `GET /api/monitors/{id}/checks`, `uptime24h` в списке
 - Готово, когда: добавил URL → через минуту в `checks` растут записи.
+- Оговорка: цикл проверок проверен smoke-запуском процесса (включая пульс при недоступной БД),
+  но рост записей в `checks` на живой БД не наблюдался — нет Postgres.
 
-**M3. React — 1–2 вечера**
-- [ ] Vite-каркас, axios-клиент, роутер, TanStack Query
-- [ ] Dashboard с поллингом 10 с + UptimeBar
-- [ ] Форма создать/редактировать, пауза/удаление
-- [ ] Страница монитора: спарклайн + последние проверки
+**M3. React — 1–2 вечера** ✅ сделано
+- [x] Vite-каркас, axios-клиент, роутер, TanStack Query
+- [x] Dashboard с поллингом 10 с + UptimeBar
+- [x] Форма создать/редактировать, пауза/удаление
+- [x] Страница монитора: спарклайн + последние проверки
 - Готово, когда: приложение end-to-end без Swagger. **(M0–M3 — минимальная сдача)**
+- Отступление: вместо `recharts` — свой SVG-спарклайн (~40 строк, `components/Sparkline.tsx`):
+  из графика нужны только задержки и засечки сбоев, а лишняя зависимость на 100+ КБ в бандле
+  ради этого не оправдана. Плюс появились `lib/format.ts` (форматирование) и
+  `components/FailureBanner.tsx` + `FieldErrorText.tsx` (ошибки `ProblemDetails` на экране).
 
-**M4. JWT-авторизация — 1 вечер (можно отложить)**
-- [ ] register/login, `[Authorize]`, `ownerId` из claims
-- [ ] изоляция по владельцу (403 на чужой монитор), экран логина на фронте
+**M4. JWT-авторизация — 1 вечер (можно отложить)** ✅ сделано
+- [x] register/login, `[Authorize]`, `ownerId` из claims
+- [x] изоляция по владельцу (403 на чужой монитор), экран логина на фронте
 - Готово, когда: два пользователя не видят мониторы друг друга.
+- Оговорка: изоляция подтверждена тестами Api/Application; «два живых пользователя» на живой БД
+  не проверялись по той же причине — нет Postgres.
 
-**M5. SRE-полировка — ≈ полдня**
-- [ ] `/readyz`, `/metrics`, JSON-логи + CorrelationId
-- [ ] graceful shutdown проверен (`docker compose stop` — без обрыва ошибок)
-- [ ] migrate-bundle вместо MigrateOnStart
-- [ ] пара юнит-тестов (валидация Monitor, `RunDueChecks` на фейках)
-- [ ] README: запуск, env-переменные, таблица 12 факторов
+**M5. SRE-полировка — ≈ полдня** (частично сделано)
+- [x] `/readyz` (readiness с пингом БД отдельно от liveness)
+- [x] JSON-логи в stdout у Api и воркера
+- [x] graceful shutdown (`docker compose stop` не проверялся — Docker недоступен; поведение
+      закрыто `ShutdownTimeout` и smoke-запуском процессов)
+- [x] пара юнит-тестов (валидация Monitor, `RunDueChecks` на фейках) — на деле 79 тестов
+- [x] README: запуск, env-переменные, таблица 12 факторов + DEPLOY.md
+- [ ] `/metrics` (prometheus-net — пакета нет в оффлайн-фиде, в коде оставлен TODO)
+- [ ] migrate-bundle вместо `MigrateOnStart` (сейчас one-off процесс `--migrate` из того же образа)
+- [ ] CorrelationId как отдельное поле логов (сейчас `traceId` в ProblemDetails)
+- [ ] Testcontainers / прогон на живой БД
 - Готово, когда: таблицу факторов из §10 можно вставлять в отчёт без изменений.
 
 ## 12. Расширения по SRE-темам (потолок роста)

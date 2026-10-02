@@ -1,0 +1,660 @@
+/* Pingboard SPA — один файл стилей на всё приложение (PLAN.md §7).
+   Схема тёмная: дашборд мониторинга читают подолгу, и красный «down» на тёмном фоне
+   заметнее, чем на белом. Все цвета — переменные, чтобы тему можно было заменить одной правкой. */
+
+:root {
+  --bg: #0e1621;
+  --panel: #16202c;
+  --panel-2: #1b2735;
+  --border: #263445;
+  --text: #e7eef7;
+  --muted: #8ea3bb;
+  --accent: #38bdf8;
+  --accent-strong: #0ea5e9;
+  --up: #34d399;
+  --down: #f87171;
+  --paused: #94a3b8;
+  --unknown: #3f4d5f;
+  --radius: 10px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+/* ── Каркас ─────────────────────────────────────────────────────────────── */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 24px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.brand small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.app-nav {
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.app-header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-email {
+  color: var(--muted);
+  font-size: 13px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-main {
+  flex: 1;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app-footer {
+  padding: 16px 24px;
+  color: var(--muted);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-head p {
+  margin: 4px 0 0;
+}
+
+.page-head h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.back-link {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ── Карточки ───────────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stat-value {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 600;
+}
+
+/* ── Кнопки ─────────────────────────────────────────────────────────────── */
+
+.btn {
+  font: inherit;
+  font-size: 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 8px 14px;
+  cursor: pointer;
+  background: var(--panel-2);
+  color: var(--text);
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--border);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent-strong);
+  color: #06121c;
+  font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--panel-2);
+}
+
+.btn-danger {
+  background: transparent;
+  border-color: #6b2b33;
+  color: var(--down);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #2a1620;
+}
+
+.btn-small {
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Таблицы ────────────────────────────────────────────────────────────── */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 10px;
+  border-bottom: 1px solid #1e2a38;
+  vertical-align: middle;
+}
+
+tbody tr:hover {
+  background: #18232f;
+}
+
+.num {
+  font-family: var(--mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.url-cell {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.error-cell {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.link-strong {
+  font-weight: 600;
+}
+
+.text-up {
+  color: var(--up);
+}
+
+.text-down {
+  color: var(--down);
+}
+
+/* ── Бейджи и полоса доступности ────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge-up {
+  color: var(--up);
+  border-color: #1f5140;
+  background: #10241d;
+}
+
+.badge-down {
+  color: var(--down);
+  border-color: #5b262c;
+  background: #26141a;
+}
+
+.badge-paused {
+  color: var(--paused);
+}
+
+.badge-unknown {
+  color: var(--muted);
+}
+
+.uptime-bar {
+  display: flex;
+  gap: 2px;
+  min-width: 180px;
+}
+
+.seg {
+  flex: 1;
+  height: 22px;
+  min-width: 3px;
+  border-radius: 2px;
+  background: var(--unknown);
+}
+
+.seg-up {
+  background: var(--up);
+}
+
+.seg-down {
+  background: var(--down);
+}
+
+.seg-unknown {
+  background: var(--unknown);
+}
+
+/* ── Спарклайн ──────────────────────────────────────────────────────────── */
+
+.spark {
+  margin: 0;
+}
+
+.spark-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.spark-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark-fail {
+  stroke: var(--down);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark figcaption {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ── Формы ──────────────────────────────────────────────────────────────── */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+
+.field label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='number'] {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+
+input:focus {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: -1px;
+}
+
+.field-error {
+  color: var(--down);
+  font-size: 12px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip,
+.seg-btn {
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.chip:hover,
+.seg-btn:hover {
+  color: var(--text);
+}
+
+.chip-active,
+.seg-btn-active {
+  color: #06121c;
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.segmented {
+  display: flex;
+  gap: 6px;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+.monitor-form h2 {
+  margin-bottom: 14px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ── Баннер ошибки ──────────────────────────────────────────────────────── */
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+.banner-error {
+  background: #26141a;
+  border: 1px solid #5b262c;
+  color: #ffd9d9;
+}
+
+.trace {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* ── Экран логина ───────────────────────────────────────────────────────── */
+
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.login-brand h1 {
+  font-size: 26px;
+}
+
+.login-brand p {
+  color: var(--muted);
+  margin: 6px 0 18px;
+  font-size: 14px;
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.tab {
+  flex: 1;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tab-active {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.login-form {
+  margin-bottom: 14px;
+}
+
+.login-hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .app-main {
+    padding: 16px;
+  }
+
+  .url-cell,
+  .error-cell {
+    max-width: 140px;
+  }
+}

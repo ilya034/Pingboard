@@ -1,0 +1,35 @@
+# .dockerignore — что не попадает в контекст сборки образов (корень репозитория = context, фактор V).
+#
+# Без этого файла контекст — это ещё и frontend/node_modules (82 МБ), .npm-cache (183 МБ),
+# backend/.packages (145 МБ) и backend/**/bin|obj. Важнее размера другое: `COPY frontend/ ./`
+# в Dockerfile.web скопировал бы в Linux-образ node_modules, собранные на Windows, и заменил бы
+# ими результат `npm ci` — сборка SPA падала бы на нативных бинарях (esbuild/rollup) для не той ОС.
+
+# ── Артефакты сборки на хосте ────────────────────────────────────────────────
+**/bin/
+**/obj/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+
+# ── Кэши и локальные фиды (в git их нет, в образе они не нужны) ──────────────
+.npm-cache/
+.packages/
+**/.packages/
+
+# ── Секреты и локальная конфигурация (фактор III) ────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Служебное ────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.idea/
+.vs/
+*.log
+*.user
+*.binlog
+[Tt]est[Rr]esult*/
+coverage/

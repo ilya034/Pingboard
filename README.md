@@ -21,10 +21,10 @@ Uptime-монитор для SRE-курса (мини-UptimeRobot): пользо
 | Worker: цикл пингов, JSON-логи, graceful shutdown | ✅ smoke-проверен |
 | **JWT-авторизация (M4)**: защита маршрутов, владелец из claim `sub` | ✅ с тестами |
 | EF-миграция `InitialCreate` | ✅ |
-| deploy: Dockerfile.api/web, compose, nginx | ✅ (не собиралось: нет доступа к реестру образов) |
+| deploy: Dockerfile.api/web, compose, nginx | ✅ есть; пошаговая инструкция — [DEPLOY.md](DEPLOY.md) (образы не собирались: нет доступа к реестру образов) |
 | Тесты | ✅ 79 (32 Domain + 47 Application), `dotnet test` / in-process раннер |
 | Замечания ревью M0 (ошибки/контракты/планировщик) | ✅ разобраны, см. §10 |
-| `frontend/` (Vite + React) | ⏳ намеренно пусто — следующий шаг (M3 по PLAN.md) |
+| `frontend/` (Vite + React + TS) | ✅ **M3**: дашборд с полосой доступности и поллингом, форма CRUD, страница монитора со спарклайном, логин/регистрация (M4) |
 
 ---
 
@@ -84,11 +84,24 @@ sre/
 │     ├─ Pingboard.Domain.Tests/  # инварианты сущностей (Entities/)
 │     └─ Pingboard.Application.Tests/# сценарии на фейках портов (UseCases/, Auth/, Fakes/),
 │                                 # Api: маппинг ошибок (Api/), SQL-контракты БД (Infrastructure/)
-├─ frontend/                      # ⏳ фронтенд (M3): Vite + React + TS, структура — §7 PLAN.md
-├─ scripts/                       # build, build-local-feed, run-tests, smoke-api — инструменты репозитория
+├─ frontend/                      # SPA (M3): Vite + React + TS — структура и экраны в §3.4
+│  ├─ index.html, vite.config.ts  #   dev-прокси /api → http://localhost:8080
+│  ├─ package.json, package-lock.json
+│  └─ src/
+│     ├─ main.tsx, App.tsx        #   QueryClientProvider + AuthProvider + маршруты
+│     ├─ api/                     #   client.ts (axios, Bearer, 401 → логин), auth.ts, monitors.ts, types.ts
+│     ├─ hooks/                   #   useAuth, useMonitors (refetchInterval 10 с), useChecks
+│     ├─ pages/                   #   LoginPage, DashboardPage, MonitorDetailPage
+│     ├─ components/              #   Layout, RequireAuth, StatusBadge, UptimeBar, Sparkline,
+│     │                           #   MonitorForm, FailureBanner, FieldErrorText
+│     ├─ lib/format.ts            #   форматирование времени/задержек/uptime
+│     └─ styles.css               #   одна тёмная тема на всё приложение
+├─ scripts/                       # build, build-web, build-local-feed, run-tests, smoke-api — инструменты репозитория
 ├─ deploy/                        # Dockerfile.api, Dockerfile.web, compose (dev/prod), nginx.conf
+├─ DEPLOY.md                      # развёртывание: dev-стенд, прод на VPS, TLS, бэкапы, откат
 ├─ Directory.Build.props          # net10.0, Nullable, WarningsAsErrors — на все проекты, вкл. backend
 ├─ NuGet.config                   # локальный оффлайн-фид .packages (см. §7)
+├─ .dockerignore                  # контекст сборки образов: без node_modules/bin/obj и без секретов
 └─ .env.example                   # вся конфигурация через окружение (фактор III)
 ```
 
@@ -137,6 +150,9 @@ Get-ChildItem -Recurse -File -Filter *.cs |
 
 ## 3. Быстрый старт
 
+Полная инструкция по развёртыванию (dev-стенд, прод на VPS, TLS, бэкапы, обновление и откат,
+диагностика) — [DEPLOY.md](DEPLOY.md). Ниже — короткая версия для разработки.
+
 ### 3.1 Локально, без Docker
 
 ```powershell
@@ -160,17 +176,25 @@ dotnet run --project backend/src/Pingboard.Worker -m:1
 
 ```bash
 cp .env.example .env        # заполнить пароли и Jwt__Secret (openssl rand -base64 48)
-# --env-file обязателен: ${...} в compose-файле подставляется из .env рядом с ним (deploy/),
-# а не из корня репозитория. Без флага в POSTGRES_* попали бы пустые строки.
-docker compose --env-file ../.env -f deploy/docker-compose.yml up --build
-# api  → http://localhost:8080   (для curl и smoke-скриптов; на «проде» API_BIND=127.0.0.1:8081)
-# frontend → http://localhost:8081   (профиль web; каталог frontend/ пуст до M3, поэтому не поднимается сам)
+# Команды выполняются из корня репозитория. --env-file обязателен: подстановка ${...} в самом
+# compose-файле ищет .env рядом с ним (в deploy/), а не в корне. Без флага POSTGRES_* в сервисе
+# postgres остались бы умолчаниями, а строка подключения Api пришла бы из .env — и Api не смог
+# бы подключиться к БД с другим паролем.
+docker compose --env-file .env -f deploy/docker-compose.yml up --build
+# api  → http://localhost:8080   (для curl и smoke-скриптов; на «проде» API_BIND=127.0.0.1:8080)
+# frontend → http://localhost:8081   (профиль web: nginx со SPA и проксированием /api)
 ```
 
-Профиль `web` нужен потому, что фронта пока нет: без него `docker compose up` собирает postgres + api + worker, а не падает на сборке несуществующего `frontend/` (`--profile web` включит nginx со SPA, когда он появится в M3). Воркер масштабируется независимо (`--scale worker=2` — фактор VIII), а отдельный процесс миграций для «прода» — это `deploy/docker-compose.prod.yml` (профиль `migrate`, фактор XII):
+Проверить, что подстановка сработала (в выводе должны быть ваши значения, а не умолчания):
 
 ```bash
-docker compose --env-file ../.env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml \
+docker compose --env-file .env -f deploy/docker-compose.yml config | grep -E 'POSTGRES_|ConnectionStrings|API_BIND|WEB_BIND'
+```
+
+Профиль `web` оставлен отдельным намеренно: `docker compose --env-file .env -f deploy/docker-compose.yml up --build` собирает postgres + api + worker (то, что нужно для проверки API и воркера), а SPA поднимается явно — с добавлением `--profile web`. Воркер масштабируется независимо (`--scale worker=2` — фактор VIII), а отдельный процесс миграций для «прода» — это `deploy/docker-compose.prod.yml` (профиль `migrate`, фактор XII):
+
+```bash
+docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml \
   --profile migrate run --rm migrate      # dotnet Pingboard.Api.dll --migrate: применить схему и выйти
 ```
 
@@ -183,6 +207,26 @@ powershell -ExecutionPolicy Bypass -File scripts/smoke-api.ps1
 Скрипт поднимает Api **без БД** и проверяет `/healthz` → 200, `/readyz` → 503 (БД недоступна, но процесс жив), что в OpenAPI объявлены все 7 маршрутов, а также JWT-обвязку: `/api/monitors` без токена → 401, с валидным токеном → не 401, с чужой подписью → 401. В режиме без БД «валидный токен принят» виден как 503 — запрос прошёл аутентификацию и упал уже на Postgres.
 
 Отдельно проверяется формат ошибок — то, на что опирается фронт: `Content-Type` ответа `application/problem+json` (RFC 7807), `WWW-Authenticate: Bearer realm="pingboard"` в 401, `traceId` в теле, `POST /api/auth/register` с битым JSON → **400**, а не 500, и срабатывание rate limit на `/api/auth/*` → **429** с `Retry-After` (скрипт поднимает Api с `RateLimit__RegisterPermitLimit=5`, чтобы не слать сотню запросов).
+
+### 3.4 Фронтенд (SPA)
+
+Api должен быть запущен на `:8080` (см. 3.1): dev-сервер Vite проксирует на него `/api`, поэтому отдельно настраивать CORS в браузере не нужно — клиент всегда ходит на свой origin.
+
+```powershell
+cd frontend
+npm install --cache ../.npm-cache   # кэш npm внутрь репозитория, иначе EPERM (см. §7)
+npm run dev:sandbox                 # http://localhost:5173
+```
+
+Суффикс `:sandbox` — из-за ограничений этой машины (Vite на Windows зовёт `exec("net use")`, а песочница запрещает `child_process` с pipe). На обычной машине и в Docker это `npm ci && npm run build`. Одной командой всё: `powershell -ExecutionPolicy Bypass -File scripts/build-web.ps1`.
+
+Что на экранах:
+
+* **Login** (`/login`) — вход и регистрация; по умолчанию подставлена демо-учётка стенда (`demo@pingboard.local` / `demo-password`), ошибки полей берутся из `ProblemDetails.errors`, а `traceId` показывается в баннере — по нему запрос ищется в JSON-логах Api;
+* **Dashboard** (`/`) — таблица мониторов: статус, uptime 24 ч, полоса доступности (сегменты считает Api), последняя задержка, время проверки; создать/изменить/пауза/удалить; автоопрос каждые 10 с через `refetchInterval`;
+* **Monitor detail** (`/monitors/:id`) — карточки статистики, спарклайн задержек за окно (1/6/24 ч, свой SVG), история проверок с кодами ответа и ошибками, пауза/возобновление.
+
+Токен хранится в `localStorage` и подставляется интерсептором axios; 401 (кроме самих `auth/*`) чистит вход и уводит на логин. Клиентская защита маршрутов — удобство, а не безопасность: настоящая проверка на сервере (`RequireAuthorization` + владелец из claim `sub`).
 
 ---
 
@@ -326,11 +370,13 @@ IDatabaseHealthProbe // CanConnectAsync — readiness, чтобы в Api не б
 
 | Симптом | Причина | Что делать |
 |---|---|---|
-| `error NU1301: SSL connection could not be established` | nuget.org недоступен из песочницы | восстановить пакеты в фид: `powershell -ExecutionPolicy Bypass -File scripts/build-local-feed.ps1` |
+| `error NU1301: SSL connection could not be established` | TLS в .NET/Schannel не получает учётные данные под restricted-токеном (`SEC_E_NO_CREDENTIALS`); сеть при этом доступна — Node работает | восстановить пакеты в фид: `powershell -ExecutionPolicy Bypass -File scripts/build-local-feed.ps1` |
 | «Ошибка сборки» без единой ошибки в логе | песочница запрещает параллельным узлам MSBuild общаться между собой | всегда `-m:1`: `dotnet build backend/Pingboard.sln -m:1`, `dotnet test ... -m:1` |
 | `testhost` падает с `Win32Exception (5)` в `OpenProcess` | запрещено следить за родительским процессом | `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1` (уходит на in-process раннер `backend/scripts/TestRunner`) |
 | `... is not digitally signed. You cannot run this script` | политика выполнения `RemoteSigned`, скрипты не подписаны | `-ExecutionPolicy Bypass` перед `-File` |
 | скрипт отработал, но отчёта `dotnet` нет | stdout нативной команды не сливается до `exit` | вывод прокачивается через `2>&1 \| Out-Host` (уже сделано в `scripts/`) |
+| `npm error code EPERM ... npm-cache\_cacache\tmp` | кэш npm лежит в `%LOCALAPPDATA%`, вне workspace | `npm install --cache ../.npm-cache` (первый запуск), либо `scripts/build-web.ps1` |
+| Vite: `spawn EPERM` в `optimizeSafeRealPathSync` | Vite на Windows зовёт `exec("net use")`, а `child_process` с pipe песочница запрещает | `npm run dev:sandbox` / `npm run build:sandbox` (`--configLoader native`) |
 
 `NuGet.config` в репозитории указывает только на локальный фид `.packages` (в git его нет — восстанавливается скриптом). Чтобы снова ходить в интернет, добавьте в `NuGet.config` источник `nuget.org` (закомментирован рядом).
 
@@ -344,8 +390,11 @@ IDatabaseHealthProbe // CanConnectAsync — readiness, чтобы в Api не б
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1     # restore/build, -m:1 подставляется сам
 powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1 # тесты
 powershell -ExecutionPolicy Bypass -File scripts/smoke-api.ps1 # smoke Api без БД
+powershell -ExecutionPolicy Bypass -File scripts/build-web.ps1 # SPA: npm install + tsc + vite build
 dotnet run --project backend/src/Pingboard.Api -m:1      # Api  → :8080
 dotnet run --project backend/src/Pingboard.Worker -m:1   # Worker
+
+cd frontend && npm run dev:sandbox                       # SPA → :5173 (прокси /api → :8080)
 
 # новая миграция (сначала соберите Infrastructure, потом --no-build)
 dotnet ef migrations add <Name> --project backend/src/Pingboard.Infrastructure --output-dir Persistence/Migrations --no-build
@@ -353,14 +402,16 @@ dotnet ef migrations add <Name> --project backend/src/Pingboard.Infrastructure -
 
 Тесты сценариев идут на фейках портов (`tests/Pingboard.Application.Tests/Fakes`) — без БД, HTTP и таймеров; время подменяется `TestTimeProvider`. Тесты Api (`Api/`) проверяют маппинг исключений в статусы, а `Infrastructure/` — сгенерированный SQL: живой Postgres этим не заменяется, но ловит именно те ошибки, которые иначе всплывают только на стенде.
 
+У фронтенда тестов нет: проверяется `tsc --noEmit` в сборке (типы + контракты DTO) и живой дым по прокси — `/api/monitors` без токена через dev-сервер отдаёт 401 `problem+json`, `POST /api/auth/register` с плохим email — 400 с разбивкой по полям, а логин без поднятого Postgres — 503 с `traceId` (ровно то, что рисует баннер на экране).
+
 ---
 
 ## 9. Что дальше (по PLAN.md)
 
-* **M3** — `frontend/`: Vite + React + TS, react-query с поллингом, страницы мониторов и логина (API под них уже есть — §1, M4), графики задержек (recharts).
-* **M4** — уже сделано в бэкенде: `[Authorize]`, владелец из claim `sub`, login/register (§6.1).
-* **M5** — `/metrics`, migrate-bundle отдельным процессом, Testcontainers, распределённый rate limit, compose-стенд целиком (nginx) и README-скриншоты.
-* **Проверка на живой БД** — по-прежнему главное непроверенное: сквозной сценарий «логин → создание монитора → воркер пишет `checks`» не прогонялся, потому что на этой машине нет работающего Postgres (Docker Desktop не запущен, до реестра образов сети нет). Что удалось закрыть без БД: SQL планировщика, дашборда и агрегата полосы проверяется на сгенерированном запросе (`Infrastructure/DatabaseContractTests` + ручная проверка `ToQueryString` для захвата мониторов и группировки по сегментам), формат ошибок, 401/400/503 и rate limit — на живом процессе (`scripts/smoke-api.ps1`). Не проверено исполнение запросов самим Postgres: `ROW_NUMBER()` в истории, `COALESCE(..., '-infinity')` в планировщике, условный `UPDATE` захвата, `date_part('epoch', …)` в сегментах полосы, применение миграции и запись `checks` воркером; поведение `UnitOfWork` при удалённом мониторе закрыто только логикой (гонку с внешним `DELETE` на живом Postgres воспроизвести негде).
+* **M3** — ✅ сделано: `frontend/` — Vite + React + TS, TanStack Query с поллингом 10 с, дашборд с полосой доступности, форма создать/изменить, пауза/удаление, страница монитора со спарклайном (свой SVG вместо recharts, PLAN.md §7) и историей проверок.
+* **M4** — ✅ сделано и в бэкенде (`[Authorize]`, владелец из claim `sub`), и на фронте (экран входа/регистрации, `401 → логин`).
+* **M5** — `/metrics`, migrate-bundle отдельным процессом, Testcontainers, распределённый rate limit, compose-стенд целиком (nginx) и README-скриншоты. Заодно фронт: SSE/WebSocket вместо поллинга, публичная статус-страница, тесты компонентов.
+* **Проверка на живой БД** — по-прежнему главное непроверенное: сквозной сценарий «логин в SPA → создание монитора → воркер пишет `checks` → дашборд рисует полосу» не прогонялся, потому что на этой машине нет работающего Postgres (Docker Desktop не запущен, до реестра образов сети нет). Что удалось закрыть без БД: SQL планировщика, дашборда и агрегата полосы проверяется на сгенерированном запросе (`Infrastructure/DatabaseContractTests` + ручная проверка `ToQueryString` для захвата мониторов и группировки по сегментам), формат ошибок, 401/400/503 и rate limit — на живом процессе (`scripts/smoke-api.ps1`), а фронт — типизацией, сборкой и запросами через dev-прокси к живому Api (401/400/503 с реальными телами `problem+json`). Не проверено исполнение запросов самим Postgres: `ROW_NUMBER()` в истории, `COALESCE(..., '-infinity')` в планировщике, условный `UPDATE` захвата, `date_part('epoch', …)` в сегментах полосы, применение миграции и запись `checks` воркером; поведение `UnitOfWork` при удалённом мониторе закрыто только логикой (гонку с внешним `DELETE` на живом Postgres воспроизвести негде). Отдельно не проверена отрисовка SPA в настоящем браузере: браузера и Playwright в песочнице нет, поэтому вёрстка, спарклайн и полоса проверены только сборкой и разбором контрактов — глазами их стоит посмотреть первым же запуском `npm run dev`.
 
 ---
 
@@ -419,7 +470,7 @@ dotnet ef migrations add <Name> --project backend/src/Pingboard.Infrastructure -
 | 21 | `IsEnabled(None)` возвращал `true`; битый JSON-файл конфигурации падал с NRE | `IsEnabled` → `logLevel != None`; парсер оборачивает ошибку в `InvalidOperationException` с именем файла; скалярный корень больше не роняет `Flatten` | — |
 | 22 | `UpdateMonitor` возвращал `UptimeBar = []` (фронт рисовал другую разметку) | полоса строится тем же `MonitorMapper`, что и на дашборде | `ListMonitorsTests` |
 | 23 | Заглушка `migrate` в prod-стенде поднимала второй Api | `--migrate` в `Pingboard.Api` — применить схему и выйти (веб-сервер не поднимается) | запуск с недоступной БД: `--migrate` идёт в Postgres и падает, Kestrel не стартует |
-| 24 | `docker compose` читал `.env` из `deploy/`: `POSTGRES_*` подставлялись пустыми | умолчания `${POSTGRES_*:-…}` + `--env-file ../.env` в документации и комментариях | — |
+| 24 | `docker compose` читал `.env` из `deploy/`: `POSTGRES_*` подставлялись пустыми | умолчания `${POSTGRES_*:-…}` + `--env-file .env` из корня репозитория в документации и комментариях | `docker compose config` (см. §3.2) |
 | 25 | Порт 8080 конфликтовал: web и api публиковались на один хост-порт; без фронта стенд не поднимался вовсе | Api — `${API_BIND:-0.0.0.0:8080}`, web — профиль `web` и `${WEB_BIND:-8081}`; точка настройки портов одна (в prod-файле порт не переопределяется, compose складывает списки `ports`) | — |
 | 26 | У воркера не было healthcheck: зависший цикл выглядел здоровым | файл-пульс (`Worker__HeartbeatPath`) + healthcheck compose на свежесть файла | запуск воркера: файл пишется даже когда все итерации падают (БД недоступна) |
 | 27 | `SeedDefaultUserAsync`: занятый email → ошибка UNIQUE без объяснения | поиск по `Id` или email + явное исключение с подсказкой | — |

@@ -6,15 +6,23 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Сначала только манифесты зависимостей: слой restore кэшируется отдельно от кода (фактор II/V).
-# NuGet.config переносим как есть: источник ".packages" в нём относительный и разрешается
-# относительно каталога конфига — то есть /src/backend/.packages, который создаётся ниже.
-COPY backend/Directory.Build.props backend/Directory.Packages.props backend/NuGet.config backend/
+# Копируем их в те же места, что и в репозитории: Directory.Build.props MSBuild ищет вверх по
+# дереву (поэтому /src/Directory.Build.props покрывает /src/backend/**), а центральные версии
+# пакетов лежат в backend/Directory.Packages.props.
+#
+# NuGet.config сюда НЕ копируется осознанно: в нём единственный источник — оффлайн-фид
+# .packages, а этот каталог в git не хранится (восстанавливается scripts/build-local-feed.ps1
+# из локального кэша машины). В образе restore идёт прямо в nuget.org: сеть на этапе сборки
+# образа всё равно нужна, иначе не вытянуть сам базовый образ SDK.
+COPY Directory.Build.props /src/
+COPY backend/Directory.Packages.props backend/
 COPY backend/src/Pingboard.Domain/*.csproj backend/src/Pingboard.Domain/
 COPY backend/src/Pingboard.Application/*.csproj backend/src/Pingboard.Application/
 COPY backend/src/Pingboard.Infrastructure/*.csproj backend/src/Pingboard.Infrastructure/
 COPY backend/src/Pingboard.Api/*.csproj backend/src/Pingboard.Api/
 COPY backend/src/Pingboard.Worker/*.csproj backend/src/Pingboard.Worker/
-RUN dotnet restore backend/src/Pingboard.Api/Pingboard.Api.csproj && dotnet restore backend/src/Pingboard.Worker/Pingboard.Worker.csproj
+RUN dotnet restore backend/src/Pingboard.Api/Pingboard.Api.csproj --source https://api.nuget.org/v3/index.json \
+    && dotnet restore backend/src/Pingboard.Worker/Pingboard.Worker.csproj --source https://api.nuget.org/v3/index.json
 
 COPY backend/ backend/
 RUN dotnet publish backend/src/Pingboard.Api/Pingboard.Api.csproj -c Release -o /app --no-restore

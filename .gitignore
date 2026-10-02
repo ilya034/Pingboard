@@ -33,6 +33,10 @@ dist-ssr/
 *.local
 .vite/
 
+# Кэш npm внутри репозитория: в песочнице DSH запись в %LOCALAPPDATA%\npm-cache
+# запрещена (EPERM), поэтому npm запускается с --cache .npm-cache (см. SANDBOX.md §6).
+.npm-cache/
+
 # ── Логи и временные файлы ───────────────────────────────────────────────────
 *.log
 logs/

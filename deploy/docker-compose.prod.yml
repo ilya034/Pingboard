@@ -1,9 +1,10 @@
 # deploy/docker-compose.prod.yml — переопределения для «прода» на VPS (фактор X: тот же образ, другой env).
-# Запуск (--env-file обязателен: подстановка ${...} читает .env из каталога compose-файла):
-#   docker compose --env-file ../.env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
-#   docker compose --env-file ../.env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml --profile migrate run --rm migrate
+# Запускать из КОРНЯ репозитория (--env-file обязателен: подстановка ${...} читает .env из каталога
+# compose-файла, то есть deploy/, а не из корня):
+#   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+#   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml --profile migrate run --rm migrate
 #
-# Отличия от dev-стенда: Api не публикуется наружу (API_BIND=127.0.0.1:8081 в .env — см. .env.example),
+# Отличия от dev-стенда: Api не публикуется наружу (API_BIND=127.0.0.1:8080 в .env — см. .env.example),
 # схему приводит отдельный one-off процесс migrate (фактор XII), а не сам Api.
 #
 # Порт Api здесь намеренно НЕ переопределяется: compose складывает списки ports из обоих файлов,
@@ -24,8 +25,11 @@ services:
 
   postgres:
     # На проде том должен лежать на хостовом диске с бэкапами.
+    # Монтируем /var/lib/postgresql, а не .../data: в 18+ данные лежат в подкаталоге с номером
+    # мажорной версии, поэтому внутри /srv/pingboard/pgdata появится 18/docker/… Так же
+    # устроено и обновление версии: pg_upgrade --link работает, пока смонтирован общий родитель.
     volumes:
-      - ${PGDATA_PATH:-/srv/pingboard/pgdata}:/var/lib/postgresql/data
+      - ${PGDATA_PATH:-/srv/pingboard/pgdata}:/var/lib/postgresql
 
   migrate:
     build:

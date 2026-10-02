@@ -15,9 +15,18 @@
   В пакете безопасности отсутствуют учетные данные
 ```
 
-`Invoke-RestMethod` до `api.nuget.org` обрывается («Базовое соединение закрыто»), `curl.exe` возвращает exit 1. Прокси в окружении нет — исходящий TLS из процессов песочницы просто не проходит.
+`Invoke-RestMethod` до `api.nuget.org` обрывается («Базовое соединение закрыто»), `curl.exe` — с `schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS`. Прокси в окружении нет.
 
-**Важно:** сеть при этом не «выключена» — она доступна инструментам харнесса (`web_fetch`, `web_search`). Заблокирован именно произвольный исходящий трафик из запускаемых процессов.
+**Важно (диагностика уточнена при сборке фронтенда, см. §8):** сеть здесь **не** выключена — падает TLS именно в Windows-стеке (Schannel).
+
+| Клиент | Проверка | Результат |
+|---|---|---|
+| `node` / `npm` (OpenSSL в поставке Node) | `npm ping`, `npm install` — 56 пакетов с registry.npmjs.org | ✅ работает |
+| `curl.exe` (Schannel) | HTTPS к registry.npmjs.org | ❌ `SEC_E_NO_CREDENTIALS (0x8009030e)` |
+| `Invoke-WebRequest` (.NET, Schannel) | HTTPS к api.nuget.org и registry.npmjs.org | ❌ «Базовое соединение закрыто» |
+| `dotnet restore` (.NET, Schannel) | api.nuget.org | ❌ `NU1301` + «В пакете безопасности отсутствуют учетные данные» |
+
+`SEC_E_NO_CREDENTIALS` — это отказ получить учётные данные для TLS (под restricted-токеном закрыт доступ к крипто-хранилищу профиля), а не отсутствие маршрута: ошибка одинакова для **любого** хоста, поэтому и выглядит как блокировка сети. Практические следствия: оффлайн-фид NuGet по-прежнему нужен (`dotnet` в сеть не ходит), а вот проверять «доступность сайта» через `Invoke-WebRequest`/`curl.exe` в этой среде нельзя — они падают и при полностью рабочей сети.
 
 **Обход.** `NuGet.config` указывает только на локальный фид `.packages/` — выгрузку пакетов из `%USERPROFILE%\.nuget\packages`. Фид восстанавливается скриптом:
 
@@ -173,6 +182,56 @@ powershell -File scripts/run-tests.ps1 -Mode reflect
 
 ---
 
+## 8. npm и Vite: кэш вне workspace и `exec("net use")`
+
+Два ограничения, которые встречаются только при работе с фронтендом. Оба лечатся флагами командной строки, а не правками кода, и **на Linux (в `deploy/Dockerfile.web`) их нет вовсе**.
+
+### 8.1 Кэш npm лежит вне workspace
+
+**Симптом.** `npm install` (а также `npm view`) падает сразу:
+
+```
+npm error code EPERM
+npm error syscall open
+npm error path C:\Users\<user>\AppData\Local\npm-cache\_cacache\tmp\***
+```
+
+**Причина.** По умолчанию кэш npm — `%LOCALAPPDATA%\npm-cache`, то есть вне рабочей папки, куда запись запрещена (та же причина, что §4).
+
+**Обход.** Кэш внутри репозитория (`.npm-cache/`, в `.gitignore`):
+
+```powershell
+npm install --cache .npm-cache
+```
+
+Для `npm run`/`npx` флаг не нужен: они ничего не скачивают. Заметно, что `npm ping` при этом отвечает `PONG` — падает не сеть, а именно запись кэша (см. §1: с сетью у Node всё в порядке).
+
+### 8.2 Vite вызывает `exec("net use")` — `spawn EPERM`
+
+**Симптом.** `npm run build` (и `npm run dev`) падает ещё на загрузке конфига:
+
+```
+failed to load config from ...\frontend\vite.config.ts
+[plugin externalize-deps]
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:457:11)
+    at Object.execFile (node:child_process:349:17)
+    at optimizeSafeRealPathSync (vite/dist/node/chunks/node.js)
+```
+
+**Причина.** На Windows Vite один раз выполняет `exec("net use")` — так он строит карту сопоставленных сетевых дисков для `safeRealpathSync`. `child_process` со `stdio: 'pipe'` в песочнице запрещён (то же ограничение, из-за которого падает MSBuild, §2), и `spawn` бросает `EPERM` синхронно, до всякой сборки.
+
+**Обход.** Загрузить конфиг нативным рантаймом Node (типы в `vite.config.ts` он срезает сам, Node ≥ 22.18):
+
+```powershell
+npm run build:sandbox     # tsc --noEmit && vite build --configLoader native
+npm run dev:sandbox       # vite --configLoader native
+```
+
+Что проверялось и **не** подошло: `--configLoader runner` падает на CJS-зависимости плагина (`ReferenceError: require is not defined` в `picomatch`); обычный `bundle` упирается в тот же `spawn EPERM`. Скрипты `dev`/`build` без суффикса оставлены «каноничными» (для Linux/Docker и обычных машин), а `*:sandbox` — для этой среды.
+
+---
+
 ## Как отключить песочницу целиком
 
 Все ограничения выше — следствие того, что команды выполняются от restricted-токена пониженной целостности (режим DSH `workspace-write`). Режимом управляет DSH, а не этот репозиторий:
@@ -195,13 +254,15 @@ powershell -File scripts/run-tests.ps1 -Mode reflect
 | 5 | только PowerShell 5.1, нужен BOM | `.ps1` в UTF-8 с BOM, без не-ASCII пунктуации в коде |
 | 6 | ExecutionPolicy блокирует `.ps1` | запускать с `-ExecutionPolicy Bypass` |
 | 7 | теряется stdout нативных команд | прокачивать вывод через `2>&1 \| Out-Host` до `exit` |
+| 8 | кэш npm пишется вне workspace | `npm install --cache .npm-cache` (кэш в `.gitignore`) |
+| 9 | Vite делает `exec("net use")` → `spawn EPERM` | `npm run dev:sandbox` / `npm run build:sandbox` (`--configLoader native`) |
 
 ### Механика: почему это всё связано
 
 Команды в песочнице DSH запускаются от **restricted-токена** (`WRITE_RESTRICTED` + понижение целостности до Low) с capability-SID на запись в workspace и приватный temp. Все семь пунктов — следствия этого одного механизма:
 
 * **Проверка доступа идёт дважды** (обычные SID + restricting SID), поэтому узлы MSBuild не могут открыть канал друг к другу, а `testhost` — описатель родительского процесса (§2, §3).
-* **Restricting-список не содержит `INTERACTIVE` и `Authenticated Users`.** Проверено: вне песочницы тот же `Invoke-WebRequest` к `api.nuget.org` возвращает HTTP 200, внутри — обрыв TLS, причём **любой** хост, а не только nuget.org. То есть блокируется произвольный исходящий трафик из процесса, а не какой-то один источник. Точный слой, который это делает (фильтрация по SID токена / политика хоста), по доступным данным не установлен. Это **не** заявленное свойство песочницы: документация ACL-backend прямо говорит, что сеть и видимость процессов им **не** ограничиваются («writes and deletes are restricted; reads, network, and process visibility are not»), и что `WRITE_RESTRICTED` пересекает только write-доступы. Практически это самый важный пункт: именно он заставляет поддерживать оффлайн-фид пакетов.
+* **Ограничения по SID ломают Windows-клиенты TLS.** Сеть доступна: `node`/`npm` из песочницы скачали 56 пакетов с registry.npmjs.org, а `node -e "https.get(...)"` отвечает 200. А вот `curl.exe` и любой .NET-клиент (`dotnet`, `Invoke-WebRequest`) падают с `SEC_E_NO_CREDENTIALS`: под restricted-токеном Schannel не получает учётные данные для TLS, и ошибка одинакова для любого хоста — поэтому её легко принять за блокировку сети. Практическое следствие ровно одно: оффлайн-фид NuGet нужен не потому, что «сети нет», а потому что `dotnet` в неё не может (см. §1). Отдельно любопытно, что это **не** заявленное свойство песочницы: документация ACL-backend прямо говорит, что сеть и видимость процессов им **не** ограничиваются («writes and deletes are restricted; reads, network, and process visibility are not»), — и по факту так оно и есть.
 * **Запись разрешена только в workspace и приватный temp** — отсюда §4.
 * **Урезанный токен ломает проверку зоны файла в PowerShell** и не даёт нативному stdout слиться до `exit` (§6, §7).
 
