@@ -1,0 +1,80 @@
+# k8s/base/40-worker.yaml — Worker: тот же образ, другая команда (фактор VIII).
+#
+# Что важно именно здесь:
+#   * у воркера нет HTTP-порта, поэтому проверять «жив ли» приходится по пульсу: цикл проверок
+#     пишет файл Worker__HeartbeatPath после каждой итерации, а проба считает его свежесть.
+#     Зависший на запросе к БД воркер так выглядит нездоровым, а не «зелёным по факту запуска»;
+#   * пробу делает сам воркер в режиме самопроверки: бинарник читает пульс и возвращает 0/1.
+#     Поэтому проба не зависит от GNU coreutils и sh в образе — она переживёт переход
+#     на distroless/chiseled-базу (это была граница из REVIEW-12FACTORS.md §10, закрытая в §11);
+#   * strategy: RollingUpdate с maxSurge=0 и maxUnavailable=1: при обновлении кластер не держит
+#     два воркера одновременно. Дубли и так исключены CAS-захватом в ListDueAsync, но лишний
+#     параллельный проход по тем же мониторам на dev-стенде не нужен;
+#   * replicas: 1 — не потому, что воркер не умеет реплики, а потому что на одном узле второй
+#     экземпляр ничего не ускоряет (проверки упираются в сеть и в один Postgres).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/part-of: pingboard
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: worker
+        app.kubernetes.io/part-of: pingboard
+    spec:
+      # Воркер доигрывает текущую итерацию по SIGTERM; бюджет приложения — 10 с
+      # (WorkerHost.ShutdownTimeout), столько же даёт кластеру эта настройка с запасом.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: worker
+          # Команда переопределяет CMD образа: тот же артефакт, второй process type.
+          command: ["dotnet", "worker/Pingboard.Worker.dll"]
+          image: ghcr.io/OWNER/pingboard-api:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: pingboard-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pingboard-secrets
+                  key: POSTGRES_PASSWORD
+          livenessProbe:
+            # Тот же образ в режиме самопроверки: бинарник читает файл-пульс и возвращает
+            # 0/1. Так проба не зависит от GNU date/stat и sh в образе — это важно, если
+            # базовый образ когда-нибудь станет distroless/chiseled.
+            exec:
+              command: ["dotnet", "worker/Pingboard.Worker.dll", "--self-check"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 160Mi
+            limits:
+              memory: 384Mi
+          volumeMounts:
+            # Пульс — файл в поде. Пустой каталог: воркер stateless (фактор VI),
+            # между репликами делить нечего, данные переживать перезапуск не должны.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

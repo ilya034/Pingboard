@@ -1,0 +1,9 @@
+# k8s/base/00-namespace.yaml — пространство имён стенда.
+# Всё, что ниже, живёт в pingboard: имена сервисов совпадают с именами в compose
+# (postgres, api, web), поэтому deploy/nginx.conf образа web работает без правок.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pingboard
+  labels:
+    app.kubernetes.io/part-of: pingboard

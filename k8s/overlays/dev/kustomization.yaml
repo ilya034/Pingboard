@@ -1,0 +1,37 @@
+# k8s/overlays/dev/kustomization.yaml — dev-стенд на локальном кластере (k3d).
+#
+# Отличия от базы:
+#   * ConfigMap: Development, миграции на старте, сид демо-учётки, доверие X-Forwarded-For
+#     от pod-сети (patch-configmap.yaml);
+#   * теги образов — в секции images ниже. Значение `local` означает «образ загружен
+#     в кластер командой k3d image import», sha-<commit> — «взят из GHCR» (тогда нужен
+#     imagePullSecret, см. scripts/k3d-up.ps1).
+#
+# Секрет здесь не создаётся: он вне git. Один раз перед первым запуском (DEPLOY §5.10):
+#   kubectl -n pingboard create secret generic pingboard-secrets \
+#     --from-literal=POSTGRES_PASSWORD="..." --from-literal=JWT_SECRET="..."
+#
+# Проверить итоговые манифесты без применения: kubectl kustomize k8s/overlays/dev
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pingboard
+
+resources:
+  - ../../base
+
+patches:
+  - path: patch-configmap.yaml
+  - path: patch-api.yaml
+
+# Теги образов. Владельца (OWNER) замените на свой логин GitHub: `kustomize edit set image`
+# в этом каталоге или правкой строк ниже. Без замены pod не сможет получить образ —
+# и это заметно сразу (`ErrImagePull`), в отличие от тихой подстановки несуществующего тега.
+# Тег `local` — образ загружен в кластер через `k3d image import` (scripts/k3d-up.ps1 -LocalImages);
+# sha-<commit> — образ взят из GHCR (тогда нужен imagePullSecret).
+images:
+  - name: ghcr.io/OWNER/pingboard-api
+    newTag: local
+  - name: ghcr.io/OWNER/pingboard-web
+    newTag: local

@@ -1,0 +1,55 @@
+# k8s/base/60-migrate-job.yaml — админ-процесс: применить схему и выйти (фактор XII).
+#
+# Это тот же образ и та же сборка, что у Api, но другая команда: `--migrate` — режим
+# «применить миграции и завершиться», веб-сервер при этом не поднимается (см. Program.cs).
+# Именно так админ-задача отличается от «фоновой фичи приложения»: процесс живёт ровно
+# столько, сколько нужно, и не является частью рабочего стенда.
+#
+# Job не входит в base/kustomization.yaml осознанно: он одноразовый, а `kubectl apply -k`
+# применял бы его при каждом запуске (и пересоздавал бы, если podSpec изменился).
+# Порядок выката: применить всё → дождаться postgres → применить Job → дождаться завершения →
+# поднять Api/Worker с MigrateOnStart=false. Команды — в DEPLOY §5.10.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/name: migrate
+    app.kubernetes.io/part-of: pingboard
+spec:
+  # Одноразовая задача: неудача должна быть видна, а не зацикливаться.
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: migrate
+        app.kubernetes.io/part-of: pingboard
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/OWNER/pingboard-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["dotnet", "Pingboard.Api.dll", "--migrate"]
+          envFrom:
+            - configMapRef:
+                name: pingboard-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pingboard-secrets
+                  key: POSTGRES_PASSWORD
+            # В админ-процессе Jwt__Secret не нужен: он не поднимает веб-сервер и не
+            # резолвит JwtOptions (см. REVIEW-12FACTORS.md §6, замечание про валидаторы).
+            # Прод-окружение всё равно задаём, чтобы поведение не зависело от дефолтов.
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi

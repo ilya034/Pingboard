@@ -33,6 +33,10 @@
              надо проверять — что claim sub доходит до ICurrentUser и что схема принимает
              токен, выписанный JwtTokenService. -->
         <ProjectReference Include="..\..\src\Pingboard.Api\Pingboard.Api.csproj"/>
+        <!-- WorkerSelfCheck (режим самопроверки воркера) — проба живости для compose и k8s.
+             Проверяется здесь, а не в Domain.Tests: это поведение процесса, а не инвариант
+             домена, и оно требует файловой системы и разбора аргументов. -->
+        <ProjectReference Include="..\..\src\Pingboard.Worker\Pingboard.Worker.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

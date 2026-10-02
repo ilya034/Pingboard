@@ -1,0 +1,72 @@
+# deploy/docker-compose.vps.yml — ограничения однохостового стенда на 1–2 ГБ RAM
+# (фактор X: тот же образ и код, отличие — только ресурсы и лог-драйвер этой машины).
+#
+# Что здесь и почему именно так:
+#   * mem_limit у каждого сервиса — не «на всякий случай», а потому что на 1 ГБ стенде
+#     OOM-killer выбирает жертву по своему усмотрению: без лимитов Postgres может убить
+#     Api, а выглядеть это будет как «сервис сам перезапустился» (restart: unless-stopped);
+#   * DOTNET_GCHeapHardLimitPercent=0x40000000 (1 ГБ) — .NET server GC по умолчанию берёт
+#     под heap процент от всей памяти хоста, а не от лимита контейнера. На 2 ГБ это
+#     приводит к тому, что два процесса .NET держат больше, чем нужно, и стенд уходит в swap;
+#   * Worker__MaxParallel=4 вместо 8 — параллелизм проверок это в первую очередь сокеты и
+#     память, на двух vCPU восемь одновременных проверок смысла не имеют;
+#   * логирование json-file с ротацией: stdout/stderr остаётся единственным каналом
+#     (фактор XI), но демон больше не может вырастить лог до гигабайта. На dev-стенде
+#     Api и воркер пишут много (тик каждые 5 с + EF-категории), так что это не теория;
+#   * порты — только loopback: наружу смотрит nginx хоста (deploy/nginx-host.dev.conf,
+#     он проксирует на 127.0.0.1:8081 → контейнер web:8080), а сам Api доступен лишь
+#     для диагностики с хоста (127.0.0.1:8080).
+#
+# Запуск (на VPS):
+#   docker compose --env-file .env \
+#     -f docker-compose.yml -f docker-compose.registry.yml -f docker-compose.vps.yml \
+#     --profile web up -d
+
+name: pingboard
+
+x-logging: &vps-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    # Postgres на 1 ГБ RAM: shared_buffers по умолчанию 128 МБ оставляем, но урезаем
+    # max_connections (дефолт 100 — это лишняя память на подключение) и сообщаем ядру,
+    # сколько памяти планировщик может рассчитывать.
+    command:
+      - postgres
+      - -c
+      - max_connections=50
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=384MB
+    logging: *vps-logging
+    mem_limit: 512m
+
+  api:
+    logging: *vps-logging
+    mem_limit: 512m
+    environment:
+      DOTNET_GCHeapHardLimitPercent: "0x40000000"
+
+  worker:
+    logging: *vps-logging
+    mem_limit: 384m
+    environment:
+      DOTNET_GCHeapHardLimitPercent: "0x40000000"
+      Worker__MaxParallel: "4"
+
+  web:
+    logging: *vps-logging
+    mem_limit: 64m
+    # Внутренний порт контейнера web — 8080 (nginx под непривилегированным пользователем),
+    # см. deploy/nginx.container.conf. Наружу его отдаёт nginx хоста.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

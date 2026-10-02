@@ -1,0 +1,20 @@
+# k8s/overlays/prod/patch-configmap.yaml — отличия от dev-стенда в кластере.
+#
+# Здесь нет ничего «секретного»: только поведение. Секреты — в Secret (k8s/base/80-secret.example.yaml).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pingboard-config
+  namespace: pingboard
+data:
+  ASPNETCORE_ENVIRONMENT: Production
+  # Схему приводит Job migrate (k8s/base/60-migrate-job.yaml), а не сам Api: в проде
+  # приложение не должно само менять схему БД (фактор XII).
+  MigrateOnStart: "false"
+  # Демо-учётка вне Development запрещена кодом; здесь это ещё и явное «нет».
+  SeedOnStart: "false"
+  # За прокси (ingress-контроллер) включаем разбор X-Forwarded-For с явным доверием
+  # pod-сети: без этого лимит на логин считается по адресу прокси и становится общим.
+  # Сеть подставьте свою: у k3s это 10.42.0.0/16, у managed-кластеров — своя.
+  ForwardedHeaders__Enabled: "true"
+  ForwardedHeaders__KnownNetworks__0: "10.42.0.0/16"

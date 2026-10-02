@@ -179,6 +179,271 @@ README §1 («собирается, 0 предупреждений», «79 те�
 ключей, которых «нет в `.env.example`», заменён на «есть, закомментированы»); DEPLOY §3 получил
 процедуру обновления lock-файла при смене зависимостей и объяснение ошибки `NU1004`.
 
-Остаются открытыми пункты §4.2 №3–6 (продвижение артефакта из реестра, распределённый rate limit,
-`FOR UPDATE SKIP LOCKED`, root/healthcheck у `web`) и пункты 5–9 из свежего прохода (design-time
-строка в `UptimeDbContextFactory`, ссылка фронта на `localhost:8080/scalar/v1`).
+Остаются открытыми пункты §4.2 №3–5 (продвижение артефакта из реестра закрыто в §9, распределённый
+rate limit, `FOR UPDATE SKIP LOCKED`) и пункты 5–9 из свежего прохода (design-time строка
+в `UptimeDbContextFactory`, ссылка фронта на `localhost:8080/scalar/v1`). Пункт §4.2 №6
+(root/healthcheck у `web`) закрыт в §10.
+
+---
+
+## 9. Деплой в новых условиях: реестр, VPS 1–2 ГБ, nginx хоста (CI/CD)
+
+Проектирование конвейера доставки (расширения №4 и №9 из PLAN.md §12) — и заодно проверка,
+что факторы в новых условиях не «переезжают» молча.
+
+**Что заведено в репозитории**
+
+| Файл | Роль | Проверено |
+|---|---|---|
+| `.github/workflows/ci.yml` | `test` (сборка + 79 тестов на ubuntu) → `build-push` (единый образ api+worker в GHCR под тегом `sha-<commit>`) → `deploy` (ручной `workflow_dispatch`, выкат по SSH) | YAML разобран парсером: три job'а, у `build-push` права `packages: write`, у `deploy` условие `workflow_dispatch` |
+| `deploy/docker-compose.registry.yml` | заменяет `build:` на `image:` — на VPS только `pull`; без `IMAGE`/`IMAGE_TAG` падает сразу | `docker compose config` → образы `ghcr.io/owner/…:sha-abc1234`, секции `build` не остаётся; запуск без переменных → `required variable IMAGE is missing a value`, exit 1 |
+| `deploy/docker-compose.vps.yml` | лимиты памяти (512/384/64 МБ), GC-лимит .NET, `Worker__MaxParallel=4`, ротация `json-file` 10 МБ × 3 | в resolve-конфиге `mem_limit`, `logging.options`, `DOTNET_GCHeapHardLimitPercent` у нужных сервисов; порты публикуются на `127.0.0.1` |
+| `deploy/nginx-host.dev.conf` | внешний nginx: TLS-терминация + прокси на `127.0.0.1:8081` | конфиг вычитан; на живом nginx не прогонялся |
+| `scripts/k3d-up.ps1` | локальный k3s-стенд: кластер с ротацией логов kubelet, `imagePullSecret` для GHCR, `kubectl apply -k` | синтаксис PowerShell разобран (UTF-8 BOM обязателен для 5.1); на живом кластере не запускался |
+
+**Что меняется по факторам**
+
+* **V (build/release/run)** — из ⚠️ в ✅ по факту появления конвейера: тег `sha-<commit>` неизменяем,
+  продвижение артефакта есть, откат — переключением тега. На VPS не собирается ничего: сборка
+  перенесена в runner, где есть и ресурсы, и сеть (на 1–2 ГБ хосте сборка SDK+node рисковала
+  OOM-killer'ом).
+* **III (config)** — `.env` на VPS генерируется workflow'ом из секретов под `umask 077`, в git его нет;
+  `ForwardedHeaders__Enabled=true` включается вместе с `KnownNetworks=172.16.0.0/12`, иначе доверие
+  заголовку либо открыто всем (подделка `X-Forwarded-For`), либо выключено (общий лимит на логин
+  для всего стенда).
+* **IX (disposability)** — на VPS действует тот же `stop_grace_period: 15s` (образ и приложение не
+  менялись), плюс проверка `/readyz` после выката: «поднялось» проверяется доступностью БД, а не
+  фактом запуска контейнера.
+* **XI (logs)** — добавлена ротация на уровне docker (`json-file`, 10 МБ × 3): на dev-стенде Api
+  пишет лог каждые 5 секунд, без лимита диск VPS кончается заметно раньше, чем хотелось бы.
+* **X (dev/prod parity)** — появился третий способ запуска того же образа (compose-на-хосте,
+  compose-из-реестра, k8s), поэтому в DEPLOY §5.9 явно перечислено, чем они отличаются: только env,
+  лимиты и способ попадания образа на машину.
+
+**Остаётся открытым после этого шага** (перенесено в план работ): распределённый rate limit,
+`FOR UPDATE SKIP LOCKED`, design-time строка в `UptimeDbContextFactory`, ссылка фронта
+на `localhost:8080/scalar/v1`. Манифесты k8s и пункт про root у `web` — в §10.
+
+---
+
+## 10. k8s-стенд: манифесты и что это меняет по факторам
+
+Манифесты заведены (расширение №9), проверены рендером и инвариантами — без живого кластера.
+
+**Состав:** `k8s/base` (Namespace, ConfigMap, StatefulSet postgres с PVC, Deployment api/worker/web,
+Service'ы, Ingress, NetworkPolicy, Job migrate, образец Secret'а), `k8s/overlays/dev` и
+`k8s/overlays/prod`, `scripts/k3d-up.ps1`, `k8s/dev.env.example`.
+
+**Чем проверено** (Docker-демон из песочницы недоступен, кластера нет):
+
+* `kubectl kustomize k8s/overlays/dev` и `.../prod` — рендер без ошибок (kustomize v5.8.1), 12 документов
+  в наборе (Job migrate намеренно вне набора: одноразовый, применяется отдельной командой);
+* по рендеру прогнаны смысловые инварианты (скрипт на Node, разбор без YAML-парсера): селекторы
+  Service совпадают с метками подов одноимённого workload, пробы ссылаются на объявленные порты,
+  у всех Deployment есть `requests` и `terminationGracePeriodSeconds`, `volumeMounts` ссылаются на
+  объявленные `volumes`, Ingress указывает на существующий Service и его порт, Secret'а в наборе нет
+  (секреты не в git), заполнитель `OWNER` в образах отдаётся предупреждением;
+* патчи оверлея dev проверены по рендеру: `ASPNETCORE_ENVIRONMENT=Development`, `MigrateOnStart=true`,
+  `SeedOnStart=true`, доверие `X-Forwarded-For` от pod-сети.
+
+**Закрытые пункты:** §4.2 №6 (контейнер `web` от root и без healthcheck) — новый
+`deploy/nginx.container.conf` слушает 8080 под `USER nginx`, `HEALTHCHECK` в Dockerfile.web,
+а в k8s это закреплено `runAsNonRoot: true` + `readOnlyRootFilesystem`. Пункт §4.2 №3 (продвижение
+артефакта) закрыт ещё в §9 конвейером.
+
+**Что меняется по факторам:**
+
+* **VIII (concurrency)** — исчезают обе инфраструктурные границы, которые были у compose:
+  фиксированный хост-порт и однократный резолв имени nginx'ом. Реплики Api — это `replicas: N`,
+  наружу порт не публикуется вовсе. Остаётся только лимит rate limit в памяти процесса.
+* **IX (disposability)** — `terminationGracePeriodSeconds: 30` вместо `stop_grace_period: 15s`:
+  бюджет приложения тот же (10 с), но кластеру нужно время снять endpoint до остановки процесса.
+* **XI (logs)** — ротация переезжает с докер-демона на kubelet (`container-log-max-size=10Mi`,
+  `container-log-max-files=3`), задаётся при создании кластера в `scripts/k3d-up.ps1`.
+* **XII (admin processes)** — миграции стали Job'ом из того же образа, приложение с
+  `MigrateOnStart=false`: админ-процесс перестал быть «режимом приложения» даже на dev-стенде.
+* **IV (backing services)** — то, что в compose давала сеть Docker, здесь выражено явно:
+  NetworkPolicy пускает к Postgres только `api`/`worker`/`migrate`, а к Api — только `web`.
+* **VI (processes)** — `/tmp` воркера стал `emptyDir` пода: пульс живёт ровно столько, сколько
+  живёт под, и это ровно то поведение, которое обещано в §2.
+
+**Новая открытая граница (появилась вместе с k8s):** проба воркера — `exec` с `date`/`stat`,
+то есть зависит от GNU coreutils и `sh` в образе. Для distroless/chiseled-образа это сломается;
+правильное решение — режим `--self-check` в самом воркере (бинарник читает пульс и возвращает код).
+**Закрыто в §11.**
+
+---
+
+## 11. Проба живости воркера: режим `--self-check` (закрытие границы из §10)
+
+Правка кода, а не манифестов: `dotnet worker/Pingboard.Worker.dll --self-check` проверяет свежесть
+пульса внутри самого процесса и возвращает 0/1. Границу из §10 это снимает полностью — проба больше
+не зависит от `date`/`stat` и `sh` в образе, то есть переживёт переход на distroless/chiseled-базу.
+
+**Что сделано**
+
+* [WorkerSelfCheck.cs](backend/src/Pingboard.Worker/Hosting/WorkerSelfCheck.cs) — разбор аргументов
+  (`--self-check`, `--heartbeat <путь>`, `--max-age <секунды>`), конфигурация через те же
+  JSON-файлы и переменные окружения, что у обычного старта, и проверка свежести;
+* возраст считается **по отметке внутри файла**, а не по времени изменения: проверка не зависит
+  от точности ФС и одинаково работает на смонтированном томе и на Windows;
+* `Worker__HeartbeatMaxAgeSeconds` (по умолчанию 120 с) вынесен в `.env.example`, ConfigMap k8s
+  и в таблицу DEPLOY §3; кривое значение (0, отрицательное, не число) откатывается к умолчанию,
+  а не «нездоров всегда»;
+* проба в [docker-compose.yml](deploy/docker-compose.yml) и `livenessProbe` в
+  [k8s/base/40-worker.yaml](k8s/base/40-worker.yaml) теперь одна и та же команда — раньше это были
+  две разные реализации одной проверки (shell в compose, shell в k8s), и они могли разойтись;
+* `Environment.Exit` вместо `return` в точке входа: top-level statements требуют, чтобы значение
+  возвращали все пути, а обычный запуск воркера ничего не возвращает (цикл живёт до SIGTERM).
+
+**Чем проверено**
+
+* 11 новых тестов (`Worker/WorkerSelfCheckTests.cs`): режим не включается без флага; свежий пульс → 0;
+  устаревший → 1; **ровно на границе порога → 0** (ловит сдвиг `<=` на `<`); файла нет → нездоров
+  с объяснением; пустой путь → нездоров; битый файл → нездоров, а не исключение; возраст берётся
+  из содержимого (файл с свежим mtime, но старой отметкой → нездоров);
+  порог и путь читаются из конфигурации; аргумент перебивает конфигурацию;
+* прогон 90/90 (32 Domain + 58 Application), сборка 0 предупреждений;
+* **живой прогон собранного бинарника** (не только тесты): свежий пульс → exit 0, устаревший
+  (`--max-age 1` через 2 с) → exit 1, отсутствующий файл → exit 1, путь из `Worker__HeartbeatPath`
+  (как в контейнере) → exit 0. В каждом случае в stdout печатается причина, а не только код;
+* `docker compose config` подтверждает, что healthcheck воркера — это
+  `["CMD", "dotnet", "worker/Pingboard.Worker.dll", "--self-check"]` с `start_period: 30s`.
+
+**Побочный эффект для CI:** в workflow добавлена ступень `manifests` — рендер обоих оверлеев
+`kubectl kustomize` и валидация схем `kubeconform` (в CI — на каждый push и pull request,
+до публикации образа). Это проверка, которой у манифестов не было: локально их можно было
+только отрендерить и проверить инвариантами.
+
+---
+
+## 12. Ссылка на документацию API уехала из фронта в конфигурацию (пункт §10/§11)
+
+**Что было.** В `Layout.tsx` и `LoginPage.tsx` адрес документации Scalar был захардкожен как
+`http://localhost:8080/scalar/v1`. На машине разработчика это работало, на VPS и в k3d —
+указывало на машину пользователя, то есть на верный 404 (или на чужой сервис). Пункт числился
+открытым в §10 и §11 как P3.
+
+**Что сделано.**
+
+* `frontend/src/lib/env.ts` — один источник правды: `apiDocsPath` из `import.meta.env.VITE_API_DOCS_PATH`
+  (пустое значение = ссылки нет вовсе);
+* `Layout.tsx` и `LoginPage.tsx` рендерят ссылку только при непустом значении. Это не косметика:
+  в окружении Production Api **не монтирует** `/scalar/v1` и `/openapi/v1.json` вовсе
+  (`Program.cs`), поэтому ссылка была бы обещанием несуществующего маршрута;
+* `deploy/Dockerfile.web` принимает build-arg `VITE_API_DOCS_PATH` (по умолчанию **пусто** —
+  «безопасное» поведение); `deploy/docker-compose.yml` передаёт `/scalar/v1`, потому что
+  стенд поднимается в Development и nginx контейнера проксирует документацию по тому же
+  источнику, что и API;
+* `deploy/docker-compose.web-prod.yml` — надстройка для Production: собирает SPA с пустым
+  значением. Отдельный файл, а не переменная в `.env`: «собрать прод-фронт со ссылкой
+  на документацию» — это ошибка конфигурации, а не настройка;
+* CI собирает и публикует образ `web` тем же тегом, что `api`/`worker` (один релиз — один тег),
+  и передаёт `/scalar/v1` — этот образ идёт на dev-стенд VPS и в k3d-dev.
+
+**Чем проверено.** `npx tsc --noEmit` → 0; `vite build` с `VITE_API_DOCS_PATH=/scalar/v1` →
+ссылка присутствует в бандле (проверено поиском по `dist/assets/*.js`); сборка без переменной →
+ссылки нет; `docker compose config` для dev-набора даёт `VITE_API_DOCS_PATH: /scalar/v1`,
+для `prod + web-prod` — пустую строку.
+
+**Заодно в CI появились две ступени, которых не было:** `web` (`npm ci` → `tsc --noEmit` →
+сборка → `npm audit` без падения конвейера) и образ SPA в реестре. До этого фронт проверялся
+только тем, что `Dockerfile.web` собирался при деплое, то есть ошибка типов всплывала уже
+на стенде.
+
+**Остаётся открытым:** design-time строка подключения в `UptimeDbContextFactory`, распределённый
+rate limit, `FOR UPDATE SKIP LOCKED`.
+
+---
+
+## 13. Что нужно от владельца репозитория для живых проверок
+
+Всё, что можно было проверить без Docker-демона, кластера и GitHub, проверено (§9–§12). Дальше
+начинается то, что из песочницы не делается: живой прогон конвейера и применение манифестов.
+Ниже — что именно запустить и на что смотреть, чтобы первый прогон дал максимум информации.
+
+**1. Первый прогон CI** (пуш ветки или PR; `workflow_dispatch` для выката):
+
+* ступени `test` (90 тестов), `web` (`npm ci` → `tsc` → сборка), `manifests` (`kustomize` +
+  `kubeconform`) — на каждый push и PR. Именно они ловят то, что локально не воспроизводится:
+  сеть до nuget.org, `--locked-mode` на чистом runner'е, схемы Kubernetes;
+* вероятные первые сбои и что они означают: `NU1004` — lock-файл разошёлся с проектом
+  (лечится `dotnet restore` и коммитом); `kubeconform` на `Ingress` — версия схем старше
+  `networking.k8s.io/v1`; отказ `docker login` — не выданы права `packages: write`.
+
+**2. Локальный k8s** (`scripts/k3d-up.ps1 -LocalImages`, Docker Desktop включён):
+
+* `kubectl -n pingboard get pods` — все ли поды дошли до `Running`, нет ли `ErrImagePull`;
+* `kubectl -n pingboard logs job/migrate` — применилась ли схема (это первая проверка
+  миграций на живой БД за всю историю проекта);
+* `kubectl -n pingboard logs deployment/worker | head` — JSON-логи и первый пульс;
+* `kubectl -n pingboard exec deployment/worker -- dotnet worker/Pingboard.Worker.dll --self-check`
+  — тот же код пробы, что использует kubelet, но с человекочитаемым выводом.
+
+**3. Выкат на VPS** (`workflow_dispatch` после настройки секретов `VPS_*` и переменных окружения):
+
+* шаг «Выкат» печатает `docker compose ps` и проверяет `/readyz` — если он падает, значит
+  либо пароль в строке подключения не совпал с `POSTGRES_PASSWORD`, либо Postgres не поднялся;
+* после выката стоит один раз посмотреть `docker stats --no-stream` — это подтвердит, что
+  лимиты из `docker-compose.vps.yml` подобраны верно для 1–2 ГБ (в частности, что стенд
+  не ушёл целиком в swap);
+* проверить `ForwardedHeaders`: в логе Api при логине должен быть виден реальный адрес клиента,
+  а не адрес nginx (иначе лимит на логин общий на весь стенд — см. §5.9).
+
+---
+
+## 14. Выкат из реестра: миграции отдельным процессом (фактор XII)
+
+**Что было.** Выкат на VPS (§5.9) генерировал `.env` с `MigrateOnStart=true`, то есть схему
+приводил сам Api при старте. Это работало, но противоречило тому, что уже сделано в k8s (Job)
+и в prod-ветке compose (§5.2): админ-процесс превращался обратно в «режим приложения» — ровно
+та формулировка, которую фактор XII и разделяет.
+
+**Что сделано.**
+
+* `.env` на стенде генерируется с `MigrateOnStart=false`;
+* выкат идёт в порядке, который compose не гарантирует сам: `pull` → ожидание `healthy`
+  у Postgres (до 150 с, с выводом последних строк лога при таймауте) →
+  `docker compose --profile migrate run --rm migrate` (тот же образ, команда
+  `dotnet Pingboard.Api.dll --migrate`; ненулевой код останавливает выкат) → `up -d` → `/readyz`;
+* единственное место, где `MigrateOnStart=true` остаётся, — dev-стенд из §4, где это осознанное
+  удобство «одна команда поднимает всё». Разница зафиксирована в DEPLOY §5.9.
+
+**Чем проверено.** YAML workflow разобран парсером; порядок шагов проверен по извлечённому
+`run`-блоку: `--profile migrate run` идёт до `up -d --remove-orphans`, а `.env` содержит
+`MigrateOnStart=false`. Синтаксис самого shell-блока проверить не удалось: `bash -n` в песочнице
+падает на `couldn't create signal pipe` (та же граница, что у `timeout`/`date` в SANDBOX.md) —
+проверка идёт на runner'е.
+
+## 15. Мелочи k8s, которые проявляются только на живом кластере
+
+Две правки, которые ничего не меняют в рендере, но убирают два типа редких отказов:
+
+* **`preStop: sleep 3` у Api** ([k8s/base/30-api.yaml](k8s/base/30-api.yaml)). Между «под удалён
+  из endpoints» и «Kestrel закрыл слушателя» есть окно: запрос успевает прийти в под, который
+  уже не принимает, и пользователь видит 502 при rolling update. Три секунды сна до SIGTERM
+  окно закрывают. Бюджет остаётся в рамках: 3 с + 10 с приложения < 30 с grace period.
+* **requests у Postgres** ([k8s/base/20-postgres.yaml](k8s/base/20-postgres.yaml)). Либо и requests,
+  и limits, либо QoS Burstable — при нехватке памяти на узле вытеснение начинается именно с БД,
+  и это выглядит как «сервис сам перезапустился».
+
+Проверено по рендеру: `preStop` присутствует ровно один раз (у Api), у StatefulSet postgres
+есть и requests, и limits, `terminationGracePeriodSeconds` — у всех четырёх workload'ов,
+включая Job миграций. Docker-демон по-прежнему недоступен из песочницы
+(`permission denied ... npipe:////./pipe/dockerDesktopLinuxEngine`), поэтому живая проверка
+остаётся за §13.
+
+## 16. Откат в k8s (то, чего не было в инструкции)
+
+Фактор V — это не только «образ с тегом», но и «на что откатываться». Для compose это уже
+описано (§5.5: переключение `IMAGE_TAG`), для k8s не было ничего. Добавлено в DEPLOY §5.10:
+
+```bash
+kubectl -n pingboard get deploy -o jsonpath='{.items[*].spec.template.spec.containers[*].image}'
+cd k8s/overlays/dev && kustomize edit set image ghcr.io/OWNER/pingboard-api:sha-<прошлый>
+kubectl apply -k k8s/overlays/dev && kubectl -n pingboard rollout status deployment/api
+```
+
+Миграции при этом **вперёд не откатываются** (`--migrate` умеет только применять) — в инструкции
+это оговорено так же, как для compose: откат схемы = восстановление из дампа или
+`dotnet ef migrations script <от> <до>`, а перед обновлением с миграцией обязателен бэкап.

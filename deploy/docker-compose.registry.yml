@@ -1,0 +1,38 @@
+# deploy/docker-compose.registry.yml — надстройка «образ из реестра» (расширение №4 PLAN.md §12).
+#
+# Зачем. В базовом deploy/docker-compose.yml у api/worker/migrate есть только `build:`: образ
+# собирается на месте (`--build`). Это осознанное решение для стенда без Docker, но на VPS оно
+# означает «собрали на проде — закатили то, что получилось»: ни неизменяемого тега, ни
+# продвижения артефакта (фактор V). Здесь сборка заменяется на `pull` по тегу, который
+# собрал CI, а `build:` из базового файла переопределяется пустым значением.
+#
+# Запуск (на VPS; .env генерирует workflow из GitHub Secrets):
+#   docker compose --env-file .env \
+#     -f docker-compose.yml -f docker-compose.registry.yml -f docker-compose.vps.yml \
+#     --profile web up -d
+#
+# Переменные: IMAGE (ghcr.io/<owner>/pingboard-api), IMAGE_TAG (sha-<commit> или semver),
+# IMAGE_PREFIX (ghcr.io/<owner> — только для образа web, у него другой Dockerfile).
+
+name: pingboard
+
+services:
+  api:
+    # `build: !reset null` убирает наследованную секцию build, `image:` задаёт артефакт.
+    # Верхний уровень тега — из .env: релиз ставит свой, откат — переключение тега.
+    #
+    # `${IMAGE:?…}` — fail-fast вместо тихой подстановки пустой строки: без переменной
+    # compose отказывается стартовать и печатает, что именно не задано. Иначе получилось бы
+    # `image: ":"` — понятная ошибка только на этапе pull, уже после деплоя.
+    build: !reset null
+    image: ${IMAGE:?IMAGE не задан (ghcr.io/<owner>/pingboard-api)}:${IMAGE_TAG:?IMAGE_TAG не задан (sha-<commit> или semver)}
+
+  worker:
+    # Тот же образ и тот же тег, что у api: три команды одного релиза (фактор VIII).
+    # Команду не переопределяем — она приходит из базового файла.
+    build: !reset null
+    image: ${IMAGE:?IMAGE не задан (ghcr.io/<owner>/pingboard-api)}:${IMAGE_TAG:?IMAGE_TAG не задан (sha-<commit> или semver)}
+
+  web:
+    build: !reset null
+    image: ${IMAGE_PREFIX:?IMAGE_PREFIX не задан (ghcr.io/<owner>)}/pingboard-web:${IMAGE_TAG:?IMAGE_TAG не задан (sha-<commit> или semver)}

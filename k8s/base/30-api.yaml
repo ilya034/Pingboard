@@ -1,0 +1,102 @@
+# k8s/base/30-api.yaml — Api: один образ, команда по умолчанию (фактор VIII).
+#
+# Особенности именно этого процесса:
+#   * readiness — /readyz (проверяет БД), liveness — /healthz (процесс жив). Разные вопросы,
+#     разные пробы: если повесить liveness на /readyz, недоступная БД начнёт перезапускать
+#     под по кругу, хотя процесс исправен;
+#   * terminationGracePeriodSeconds=30 при бюджете приложения 10 с (HostOptions.ShutdownTimeout):
+#     запас нужен не приложению, а тому, что происходит между SIGTERM и остановкой процесса —
+#     endpoint обязан исчезнуть из Service раньше, чем Api перестанет принимать соединения;
+#   * миграции в базе выключены (MigrateOnStart=false): схему приводит Job (k8s/base/60-migrate-job.yaml),
+#     это админ-процесс, а не «фича приложения» (фактор XII).
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: pingboard
+spec:
+  selector:
+    app.kubernetes.io/name: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: pingboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+        app.kubernetes.io/part-of: pingboard
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: ghcr.io/OWNER/pingboard-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: pingboard-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pingboard-secrets
+                  key: POSTGRES_PASSWORD
+            - name: Jwt__Secret
+              valueFrom:
+                secretKeyRef:
+                  name: pingboard-secrets
+                  key: JWT_SECRET
+          # /healthz отвечает 200 всегда, /readyz — 503, пока БД недоступна. Задержка старта
+          # здесь разложена на initialDelaySeconds + failureThreshold (в compose это
+          # start_period: 15s).
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Перед SIGTERM даём кластеру снять под из эндпоинтов Service. Приложение
+          # останавливается корректно и без этого, но окно между «под удалён из endpoints»
+          # и «Kestrel закрыл слушателя» даёт редкие 502 при rolling update: запрос успевает
+          # прийти в под, который уже не принимает. Три секунды — дешевле, чем разбираться
+          # с моргающим 502 раз в несколько выкатов.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 3"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 512Mi

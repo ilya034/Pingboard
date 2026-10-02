@@ -19,6 +19,9 @@ publish/
 appsettings.Production.json
 appsettings.Local.json
 secrets.json
+# Секреты локального k8s-стенда: из этого файла scripts/k3d-up.ps1 создаёт Secret.
+# Рядом лежит k8s/dev.env.example — он в git.
+k8s/dev.env
 
 # ── Локальный оффлайн-фид NuGet ──────────────────────────────────────────────
 # Восстанавливается скриптом scripts/build-local-feed.ps1, в git не нужен (~150 МБ).

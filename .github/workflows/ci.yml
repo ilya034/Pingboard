@@ -1,0 +1,365 @@
+# .github/workflows/ci.yml — конвейер доставки (расширение №4 из PLAN.md §12).
+#
+# Три ступени, каждая опирается на предыдущую:
+#   1. test       — сборка и тесты на чистом ubuntu-runner'е (то есть ШТАТНЫЙ путь,
+#                   а не обходной in-process раннер из scripts/, который нужен
+#                   только из-за песочницы на машине разработки);
+#   2. build-push — сборка ОДНОГО образа (api+worker) и публикация в GHCR
+#                   под неизменяемым тегом sha-<commit>;
+#   3. deploy     — только вручную (workflow_dispatch): на VPS ничего не собирается,
+#                   хост делает `pull` уже проверенного артефакта (фактор V).
+#
+# Почему restore идёт через сгенерированный NuGet.config с nuget.org: в репозитории
+# NuGet.config указывает на локальный оффлайн-фид .packages, которого на runner'е нет.
+# Lock-файлы (packages.lock.json) писались под nuget.org, поэтому источник в CI совпадает
+# с источником в deploy/Dockerfile.api, а граф зависимостей берётся из lock-файла
+# (--locked-mode): расхождение PackageReference с lock-файлом валит конвейер, а не тихо
+# меняет состав зависимостей.
+
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Тег образа, который выкатывать (по умолчанию — тег текущего коммита)"
+        required: false
+        default: ""
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  test:
+    name: Сборка и тесты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Кэш NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # Источник nuget.org: на runner'е нет локального оффлайн-фида .packages, поэтому конфиг
+      # для CI генерируется здесь, а не лежит в репозитории (в репозитории он сломал бы
+      # локальную сборку без сети). Проверено локально: restore --locked-mode с таким
+      # конфигом проходит, то есть lock-файлы переносимы между фидами.
+      - name: NuGet.config с nuget.org
+        run: |
+          cat > "$RUNNER_TEMP/NuGet.ci.config" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
+            </packageSources>
+          </configuration>
+          XML
+
+      - name: Restore (locked-mode)
+        run: dotnet restore backend/Pingboard.sln --locked-mode --configfile "$RUNNER_TEMP/NuGet.ci.config"
+
+      # TreatWarningsAsErrors=true в Directory.Build.props: эта ступень одновременно проверяет
+      # заявление README §1 «собирается, 0 предупреждений».
+      - name: Build
+        run: dotnet build backend/Pingboard.sln --no-restore
+
+      - name: Test
+        run: dotnet test backend/Pingboard.sln --no-build --logger "console;verbosity=normal"
+
+  web:
+    name: SPA (типы + сборка)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci` — ровно то же, что делает deploy/Dockerfile.web: сборка проверяет
+      # тот же зафиксированный набор зависимостей, что уедет в образ.
+      - name: Зависимости
+        working-directory: frontend
+        run: npm ci
+
+      - name: Типы
+        working-directory: frontend
+        run: npm run typecheck
+
+      # Сборка с тем же build-arg, что использует dev-стенд: если ссылка на документацию
+      # API ломает сборку или типы, это видно здесь, а не на стенде.
+      - name: Сборка SPA
+        working-directory: frontend
+        env:
+          VITE_API_DOCS_PATH: /scalar/v1
+        run: npm run build
+
+      - name: Аудит зависимостей
+        working-directory: frontend
+        # Аудит не валит конвейер: уязвимость в транзитивной зависимости — это повод
+        # обновить пакет, а не блокировка выката. Строка остаётся в логе для истории.
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+  manifests:
+    name: Манифесты k8s
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # На runner'е уже есть kubectl, то есть и kustomize — им рендерятся оба оверлея,
+      # а схемам Kubernetes их проверяет kubeconform (kubectl apply --dry-run=server
+      # требует живого кластера, поэтому в CI используется оффлайн-валидатор схем).
+      - name: Рендер оверлеев
+        run: |
+          kubectl version --client
+          kubectl kustomize k8s/overlays/dev  > /tmp/dev.yaml
+          kubectl kustomize k8s/overlays/prod > /tmp/prod.yaml
+          echo "dev:  $(grep -c '^kind:' /tmp/dev.yaml) объектов"
+          echo "prod: $(grep -c '^kind:' /tmp/prod.yaml) объектов"
+
+      - name: Валидация схем
+        uses: docker://ghcr.io/yannh/kubeconform:v0.7.0
+        with:
+          args: >-
+            -strict -summary -ignore-missing-schemas
+            -output pretty
+            /github/workspace/k8s/base /github/workspace/k8s/overlays
+
+  build-push:
+    name: Образ в GHCR
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Вход в GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        name: Метаданные образа
+        uses: docker/metadata-action@v5
+        with:
+          # repository_owner может содержать заглавные буквы, а путь образа в GHCR — только
+          # строчные; имя репозитория фиксируем явно, а не через github.event.repository.name.
+          images: ghcr.io/${{ github.repository_owner }}/pingboard-api
+          tags: |
+            type=sha,format=short,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+          labels: |
+            org.opencontainers.image.title=pingboard-api
+            org.opencontainers.image.description=Pingboard: Api и Worker — один образ, две команды
+
+      - name: Сборка и публикация
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.api
+          # Публикуем только linux/amd64: VPS и k3d на этой машине — amd64. ARM (Raspberry Pi,
+          # Apple Silicon) добавляется одной строкой в platforms, но сборка станет в разы дольше.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # SPA — отдельный образ (deploy/Dockerfile.web). Публикуется тем же тегом, что api/worker:
+      # «один релиз» — это один тег на все образы, иначе откат потребовал бы помнить два.
+      # Ссылка на документацию API включается здесь: этот же образ идёт и на dev-стенд VPS,
+      # и в k3d-dev, где окружение Development (образ для Production собирается надстройкой
+      # deploy/docker-compose.web-prod.yml с пустым значением).
+      - name: Сборка и публикация SPA
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.web
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/pingboard-web:${{ steps.meta.outputs.version }}
+          build-args: |
+            VITE_API_DOCS_PATH=/scalar/v1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Что опубликовано
+        run: |
+          {
+            echo "### Образы опубликованы"
+            echo ""
+            echo '```'
+            echo "api+worker: ${{ steps.meta.outputs.tags }}"
+            echo "web:        ghcr.io/${{ github.repository_owner }}/pingboard-web:${{ steps.meta.outputs.version }}"
+            echo '```'
+            echo "Дайджест — в логе шагов сборки (строка Digest:)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Ручной выкат на VPS: на хосте не собирается ничего, только `pull` по неизменяемому тегу.
+  #
+  # Один раз на VPS руками (DEPLOY §5.9): git clone репозитория, симлинк compose-файлов
+  # в рабочий каталог и `docker login ghcr.io` с PAT (read:packages) — после этого выкат
+  # не требует интерактивных действий.
+  #
+  # Секреты (Settings → Secrets and variables → Actions → Secrets): VPS_HOST, VPS_USER,
+  # VPS_SSH_KEY, VPS_APP_DIR.
+  # Переменные (Settings → Environments → production → Variables): POSTGRES_PASSWORD,
+  # JWT_SECRET, PUBLIC_HOST.
+  # Почему секреты приложения, а не GitHub Secrets: значения попадают в .env на хосте,
+  # а не в командную строку, и их видно в UI окружения — так проще менять без правки workflow.
+  deploy:
+    name: Выкат на VPS
+    runs-on: ubuntu-latest
+    needs: build-push
+    if: github.event_name == 'workflow_dispatch'
+    environment: production
+    steps:
+      - name: Проверить, что секреты заданы
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          POSTGRES_PASSWORD: ${{ vars.POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ vars.JWT_SECRET }}
+        run: |
+          missing=""
+          [ -n "$VPS_HOST" ] || missing="$missing VPS_HOST"
+          [ -n "$VPS_USER" ] || missing="$missing VPS_USER"
+          [ -n "$VPS_SSH_KEY" ] || missing="$missing VPS_SSH_KEY"
+          [ -n "$VPS_APP_DIR" ] || missing="$missing VPS_APP_DIR"
+          [ -n "$POSTGRES_PASSWORD" ] || missing="$missing POSTGRES_PASSWORD"
+          [ -n "$JWT_SECRET" ] || missing="$missing JWT_SECRET"
+          if [ -n "$missing" ]; then
+            echo "::error::Не заданы:$missing — см. DEPLOY.md §5.9"
+            exit 1
+          fi
+          echo "Секреты на месте."
+
+      - name: Настроить SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Выкат
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          POSTGRES_PASSWORD: ${{ vars.POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ vars.JWT_SECRET }}
+          PUBLIC_HOST: ${{ vars.PUBLIC_HOST }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/pingboard-api
+          IMAGE_TAG: ${{ inputs.image_tag != '' && inputs.image_tag || format('sha-{0}', github.sha) }}
+        run: |
+          # Значения раскрываются внутри heredoc с кавычками: подстановку делает shell
+          # на удалённой машине, а не наш — в лог runner'а секреты не попадают.
+          ssh -i ~/.ssh/id_deploy "$VPS_USER@$VPS_HOST" \
+            IMAGE="$IMAGE" IMAGE_TAG="$IMAGE_TAG" PUBLIC_HOST="$PUBLIC_HOST" \
+            POSTGRES_PASSWORD="$POSTGRES_PASSWORD" JWT_SECRET="$JWT_SECRET" \
+            VPS_APP_DIR="$VPS_APP_DIR" \
+            'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd "$VPS_APP_DIR"
+
+          # .env генерируется здесь, а не лежит в git: секреты приходят из GitHub, файл
+          # создаётся сразу с правами 600 (фактор III).
+          umask 077
+          cat > .env <<EOF
+          ASPNETCORE_ENVIRONMENT=Production
+          ASPNETCORE_URLS=http://+:8080
+          # Схему приводит отдельный процесс migrate (шаг ниже), а не сам Api: на «проде»
+          # приложение не должно менять схему БД при старте (фактор XII).
+          MigrateOnStart=false
+          SeedOnStart=false
+          POSTGRES_USER=pingboard
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          POSTGRES_DB=pingboard
+          ConnectionStrings__Default=Host=postgres;Port=5432;Database=pingboard;Username=pingboard;Password=$POSTGRES_PASSWORD
+          Jwt__Secret=$JWT_SECRET
+          Jwt__ExpiresMinutes=120
+          Jwt__Issuer=pingboard
+          Jwt__Audience=pingboard
+          RateLimit__LoginPermitLimit=20
+          RateLimit__RegisterPermitLimit=10
+          RateLimit__AuthWindowSeconds=60
+          ForwardedHeaders__Enabled=true
+          ForwardedHeaders__KnownNetworks__0=172.16.0.0/12
+          Probe__TimeoutMs=5000
+          Probe__AllowPrivateNetworks=false
+          Worker__TickSeconds=5
+          Worker__MaxParallel=4
+          Worker__BatchSize=100
+          Worker__HeartbeatPath=/tmp/pingboard-worker-heartbeat
+          Monitors__UptimeWindowHours=24
+          Monitors__UptimeBarSegments=24
+          Monitors__DashboardHistoryPerMonitor=500
+          # Воркер и Api проверяют живость друг друга по порогу свежести пульса (120 с):
+          # healthcheck воркера — это режим --self-check той же сборки.
+          Worker__HeartbeatMaxAgeSeconds=120
+          API_BIND=127.0.0.1:8080
+          WEB_BIND=127.0.0.1:8081
+          IMAGE=$IMAGE
+          IMAGE_TAG=$IMAGE_TAG
+          APP_VERSION=$IMAGE_TAG
+          EOF
+          chmod 600 .env
+
+          DC="docker compose --env-file .env -f docker-compose.yml -f docker-compose.registry.yml -f docker-compose.vps.yml"
+
+          # Схема — до старта нового кода, отдельным процессом: тот же образ, команда --migrate.
+          # Здесь compose не даёт k8s-гарантий (initContainer/service_completed_successfully),
+          # поэтому порядок задаётся руками: Postgres здоров → миграции → приложение.
+          $DC --profile web pull
+          for i in $(seq 1 30); do
+            $DC ps postgres --format '{{.Health}}' 2>/dev/null | grep -q healthy && break
+            [ "$i" = 30 ] && { echo "postgres не стал healthy за 150 с"; $DC logs postgres | tail -30; exit 1; }
+            sleep 5
+          done
+          $DC --profile migrate run --rm migrate
+
+          $DC --profile web up -d --remove-orphans
+          docker image prune -f >/dev/null
+
+          $DC --profile web ps
+          curl -fsS --retry 10 --retry-delay 3 --retry-connrefused "http://127.0.0.1:8080/readyz" >/dev/null
+          echo "Готово: http://$PUBLIC_HOST (nginx на хосте → 127.0.0.1:8081)"
+          REMOTE

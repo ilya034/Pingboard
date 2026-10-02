@@ -86,10 +86,12 @@ services:
         condition: service_healthy
     healthcheck:
       # У воркера нет порта, поэтому проверяем не процесс, а пульс: цикл доиграл итерацию
-      # за последние две минуты. Иначе зависший на запросе к БД воркер выглядит здоровым.
-      test: ["CMD-SHELL", "test $(( $(date +%s) - $(stat -c %Y /tmp/pingboard-worker-heartbeat) )) -lt 120"]
+      # за последние две минуты (порог — Worker__HeartbeatMaxAgeSeconds, по умолчанию 120 с).
+      # Проверку делает сам бинарник в режиме --self-check, а не shell с date/stat: так она
+      # не зависит от состава образа (фактор IX) и совпадает с livenessProbe в k8s.
+      test: ["CMD", "dotnet", "worker/Pingboard.Worker.dll", "--self-check"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 30s
     restart: unless-stopped
@@ -101,13 +103,20 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.web
+      args:
+        # Ссылка на документацию API в SPA. Стенд поднимается с ASPNETCORE_ENVIRONMENT=Development,
+        # то есть Api отдаёт Scalar, а nginx контейнера проксирует его по тому же источнику.
+        # Для «прода» сюда передаётся пустое значение — тогда ссылки в интерфейсе нет вовсе.
+        VITE_API_DOCS_PATH: ${VITE_API_DOCS_PATH:-/scalar/v1}
     # web — отдельный профиль: `docker compose up` поднимает только postgres + api + worker
     # (быстрая проверка API и воркера), а SPA — `--profile web`, чтобы не собирать node-образ
     # на каждый прогон. Фронт (M3) уже есть: frontend/ + deploy/Dockerfile.web.
     profiles: ["web"]
     ports:
       # 8081, а не 8080: 8080 на dev-стенде занят самим Api (прямой доступ для curl).
-      - "${WEB_BIND:-8081}:80"
+      # Внутри контейнера nginx слушает 8080 непривилегированным пользователем nginx
+      # (deploy/nginx.container.conf, фактор X — тот же образ, что и в k8s).
+      - "${WEB_BIND:-8081}:8080"
     depends_on:
       api:
         condition: service_started

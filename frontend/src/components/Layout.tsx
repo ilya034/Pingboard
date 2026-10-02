@@ -1,5 +1,6 @@
 import { Link, Outlet } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { apiDocsPath } from '../lib/env'
 
 /** Общая рамка приложения: шапка с пользователем, содержимое страницы, подвал. */
 export function Layout() {
@@ -15,10 +16,13 @@ export function Layout() {
 
         <nav className="app-nav">
           <Link to="/">Дашборд</Link>
-          {/* Swagger/Scalar живёт на Api (только Development) — во время отладки это ближе всего. */}
-          <a href="http://localhost:8080/scalar/v1" target="_blank" rel="noreferrer">
-            API
-          </a>
+          {/* Ссылка на документацию API появляется только там, где Api её действительно отдаёт
+              (Development). В проде её нет — иначе вёл бы на 404 чужого хоста: см. lib/env.ts. */}
+          {apiDocsPath && (
+            <a href={apiDocsPath} target="_blank" rel="noreferrer">
+              API
+            </a>
+          )}
         </nav>
 
         <div className="app-header-right">

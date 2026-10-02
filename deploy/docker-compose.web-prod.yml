@@ -1,0 +1,25 @@
+# deploy/docker-compose.web-prod.yml — сборка SPA без ссылки на документацию API.
+#
+# Зачем отдельная надстройка. Ссылка на Scalar/Swagger попадает в бандл на этапе сборки
+# (build-arg VITE_API_DOCS_PATH, см. deploy/Dockerfile.web). Api отдаёт документацию только
+# при ASPNETCORE_ENVIRONMENT=Development, поэтому:
+#   * dev-стенд (deploy/docker-compose.yml, окружение Development) передаёт `/scalar/v1`
+#     и получает рабочую ссылку через nginx того же контейнера;
+#   * окружение Production обязано собрать SPA с пустым значением — иначе в интерфейсе
+#     останется ссылка на маршрут, которого на «проде» нет (404).
+#
+# Подключение — к prod-набору (DEPLOY §5.5):
+#   docker compose --env-file .env \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml -f deploy/docker-compose.web-prod.yml \
+#     --profile web build
+#
+# Отдельный файл, а не значение в .env: «собрать прод-фронт со ссылкой на документацию» —
+# это ошибка конфигурации, а не настройка, поэтому она не должна быть одной переменной в стороне.
+
+name: pingboard
+
+services:
+  web:
+    build:
+      args:
+        VITE_API_DOCS_PATH: ""

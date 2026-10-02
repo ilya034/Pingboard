@@ -76,6 +76,7 @@ openssl rand -base64 48      # → положить в Jwt__Secret (миниму
 | `Probe__AllowPrivateNetworks` | `false` | `false` | `true` только на доверенном стенде: снимает барьер SSRF и открывает проверку внутренних адресов |
 | `Worker__TickSeconds` / `BatchSize` / `MaxParallel` | `5` / `100` / `8` | так же | период цикла, размер батча, параллелизм проверок |
 | `Worker__HeartbeatPath` | `/tmp/pingboard-worker-heartbeat` | так же | файл-пульс; путь захардкожен в healthcheck compose — меняя его, правьте и там |
+| `Worker__HeartbeatMaxAgeSeconds` | `120` | так же | порог свежести пульса для пробы воркера (`--self-check`); держите согласованным с периодом healthcheck |
 | `Monitors__UptimeWindowHours` / `UptimeBarSegments` / `DashboardHistoryPerMonitor` | `24` / `24` / `500` | так же | окно и сегменты полосы доступности, глубина истории на дашборде |
 | `Cors__Origins__0` | `http://localhost:5173` | не важно | нужно только dev-фронту Vite; в проде SPA и API на одном origin, CORS не участвует |
 | `API_BIND` | `0.0.0.0:8080` | `127.0.0.1:8080` | куда публикуется Api |
@@ -317,6 +318,21 @@ docker image inspect pingboard-api:0.1.0 \
 IMAGE_TAG=0.0.9 $DC --profile web up -d     # старая версия из уже собранного образа, без сборки
 ```
 
+Ссылка на документацию API в SPA — это **build-arg**, а не настройка контейнера: значение
+вшивается в бандл при сборке. Стенд с `ASPNETCORE_ENVIRONMENT=Development` отдаёт Scalar,
+поэтому `deploy/docker-compose.yml` передаёт `/scalar/v1` (ссылка ведёт через nginx контейнера
+`web`). Для окружения Production фронт собирается отдельной надстройкой — иначе в интерфейсе
+останется ссылка на маршрут, которого на «проде» нет:
+
+```bash
+docker compose --env-file .env -f deploy/docker-compose.yml \
+  -f deploy/docker-compose.prod.yml -f deploy/docker-compose.web-prod.yml \
+  --profile web build
+```
+
+На стенде, который катится из реестра (§5.9), об этом думать не нужно: образ SPA собирает CI
+(`VITE_API_DOCS_PATH=/scalar/v1` — под dev-стенд), а хост делает только `pull`.
+
 Порядок «сначала миграции, потом код» рассчитан на совместимые изменения (добавить таблицу или
 колонку). Ломающие изменения (переименование, удаление колонки) в один шаг не укладываются —
 нужен приём expand/contract: сначала релиз, который пишет и старое, и новое, потом удаление
@@ -365,7 +381,7 @@ $DC exec -T postgres psql -U pingboard -d pingboard -c \
 |---|---|
 | Логи | `$DC logs -f api worker` — JSON в stdout (фактор XI); `traceId` из ошибки в браузере ищется здесь же |
 | Здоровье Api | healthcheck `curl -fsS /healthz`, интервал 10 с |
-| Здоровье воркера | свежесть файла-пульса (`< 120 с`); воркер пишет его даже когда все проверки падают |
+| Здоровье воркера | свежесть файла-пульса (`< 120 с`) проверяет сам воркер: `dotnet worker/Pingboard.Worker.dll --self-check` (коды 0/1). Воркер пишет пульс даже когда все проверки падают |
 | Здоровье БД | `pg_isready` + `/readyz` |
 | Масштабирование Api | Реплики поднимаются надстройкой `deploy/docker-compose.scale.yml`, которая снимает публикацию фиксированного порта (`ports: !reset []`, нужен compose ≥ 2.24): `export DCS="docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.scale.yml"`, затем `$DCS --profile web up -d --scale api=2` и `$DCS --profile web exec web nginx -s reload` — nginx резолвит `api:8080` один раз при старте и новые реплики сам не подхватывает. На «проде» в список файлов добавляется `-f deploy/docker-compose.prod.yml`. Api остаётся виден через nginx (`curl -fsS http://localhost:8081/healthz`), конкретная реплика проверяется изнутри: `$DCS exec api curl -fsS localhost:8080/healthz`. Обязательное условие — **заданный `Jwt__Secret`**: с пустым секретом каждая реплика генерирует свой эфемерный ключ подписи, и токен, выданный одной репликой, вторая отвергнет с 401 |
 | Лимиты при репликах Api | Rate limit — в памяти процесса, у каждой реплики свой счётчик: лимит умножается на число реплик (а за nginx все клиенты приходят с адреса прокси, и лимит становится общим на стенд). Осознанная граница, распределённый счётчик — M5, см. README §6.5 |
@@ -404,6 +420,9 @@ $DC exec -T postgres psql -U pingboard -d pingboard -c \
 | Логин отдаёт 503 | Api жив, но БД недоступна — это осознанный контракт (503 = backing service, не 500) | `$DC ps`, `/readyz`, логи postgres |
 | Сборка образа: `failed to compute cache key: ...Nupkg/NuGet.config` | старая версия `deploy/Dockerfile.api` (ссылалась на файлы, которых нет в `backend/`) | обновить репозиторий: пути исправлены, restore в образе идёт в nuget.org |
 | Сборка образа: ошибки restore NuGet | нет доступа к `nuget.org` из сборочной среды | обеспечить сеть или собрать образ на машине с сетью и перенести его (`docker save`/`load`) |
+| На VPS `pull` падает с `denied` / `unauthorized` | GHCR-пакет приватный, а на хосте не выполнен `docker login` | §5.9: один раз `docker login ghcr.io` на VPS; в workflow логин на хосте не делается намеренно, чтобы PAT не ходил по ssh |
+| `SeedOnStart=true` вне Development | workflow и пример `.env` ставят `SeedOnStart=false`: сид демо-учётки вне Development запрещён и роняет старт | убрать строку или поставить `false`; аккаунт создавать через `POST /api/auth/register` |
+| `required variable IMAGE is missing a value` | запустили `-f deploy/docker-compose.registry.yml` без `IMAGE`/`IMAGE_TAG`/`IMAGE_PREFIX` в `.env` | это fail-fast: заполните переменные (на VPS их пишет workflow) |
 
 Аварийный минимум при непонятном поведении:
 
@@ -412,6 +431,242 @@ $DC ps
 $DC logs --since 10m api worker postgres
 curl -i http://127.0.0.1:8080/readyz
 ```
+
+---
+
+### 5.9. VPS «по-настоящему»: CI/CD, GHCR и nginx на хосте
+
+Всё, что выше в §5, описывает **сборку на целевой машине**: `git pull` + `docker compose build`.
+Это работает, но на стенде 1–2 ГБ RAM сборка образа (.NET SDK + node) — самая прожорливая операция
+во всём цикле, а «закатали то, что собралось на проде» не даёт ни неизменяемого артефакта, ни отката
+(фактор V, открытый пункт в [REVIEW-12FACTORS.md](REVIEW-12FACTORS.md)). Здесь — путь через реестр:
+на хосте не собирается **ничего**.
+
+**Схема**
+
+```
+GitHub (push) → Actions: test (79) → build-push → GHCR (ghcr.io/<owner>/pingboard-api:sha-<commit>)
+                                                                        │
+                                      workflow_dispatch ────────────────┘
+                                              │ ssh
+                                              ▼
+                                   VPS: docker compose pull && up -d
+                                   nginx хоста (443, TLS) → 127.0.0.1:8081 → web → api:8080
+```
+
+**Файлы**
+
+| Файл | Роль |
+|---|---|
+| `.github/workflows/ci.yml` | три ступени: тесты, публикация образа, ручной выкат по SSH |
+| `deploy/docker-compose.registry.yml` | заменяет `build:` на `image:` — на VPS работает только `pull`; без `IMAGE`/`IMAGE_TAG` падает сразу (fail-fast) |
+| `deploy/docker-compose.vps.yml` | лимиты памяти, GC-лимит .NET, `Worker__MaxParallel=4`, ротация логов `json-file` |
+| `deploy/nginx-host.dev.conf` | внешний nginx: TLS + прокси на `127.0.0.1:8081`; Api наружу не смотрит |
+
+**Шаги на VPS (один раз)**
+
+```bash
+# 1. Docker и компоуз
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER" && newgrp docker
+
+# 2. Свап: 2 ГБ. На 1 ГБ стенде без свапа первый же пик (миграция + postgres vacuum)
+#    заканчивается OOM-killer'ом, и это выглядит как «postgres сам перезапустился».
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# 3. Код и compose. Каталог — тот, что потом указан в секрете VPS_APP_DIR.
+sudo mkdir -p /srv/pingboard && sudo chown "$USER" /srv/pingboard
+git clone https://github.com/<owner>/<repo>.git /srv/pingboard/app
+
+# 4. Один раз логин в GHCR: PAT со scope read:packages. В самом workflow логина нет
+#    намеренно — токен не должен ходить по ssh в командной строке.
+echo "<PAT>" | docker login ghcr.io -u <github-логин> --password-stdin
+```
+
+**Настройки в GitHub**
+
+| Где | Имя | Значение |
+|---|---|---|
+| Secrets | `VPS_HOST` | IP или домен |
+| Secrets | `VPS_USER` | пользователь с правами docker |
+| Secrets | `VPS_SSH_KEY` | приватный ключ (публичный — в `~/.ssh/authorized_keys` на VPS) |
+| Secrets | `VPS_APP_DIR` | `/srv/pingboard/app` |
+| Variables (environment `production`) | `POSTGRES_PASSWORD` | пароль БД; он же попадает в строку подключения |
+| Variables (environment `production`) | `JWT_SECRET` | ≥ 32 байта, `openssl rand -base64 48` |
+| Variables (environment `production`) | `PUBLIC_HOST` | домен стенда (для вывода в лог) |
+
+Первый выкат делается через **Run workflow** (`workflow_dispatch`) после того, как ступень `build-push`
+опубликовала образ: workflow скатывает тег текущего коммита (`sha-<commit>`), а при желании —
+любой другой тег через поле `image_tag` (это и есть откат на предыдущий релиз).
+
+**Что делает выкат**
+
+1. генерирует `.env` на хосте из секретов/переменных (`umask 077` → права 600); файла в git нет;
+2. `docker compose --profile web pull` — качает образ по тегу (и образ SPA тоже);
+3. ждёт `healthy` у Postgres: миграции нельзя запускать раньше, чем принимает БД;
+4. `docker compose --profile migrate run --rm migrate` — схему приводит **отдельный процесс**
+   той же сборки (`dotnet Pingboard.Api.dll --migrate`), а не сам Api при старте: на «проде»
+   приложение не должно менять схему БД (фактор XII). В compose нет k8s-гарантии
+   `service_completed_successfully`, поэтому порядок задан явно: БД здорова → миграции (exit code
+   проверяется, при ошибке выкат останавливается) → приложение;
+5. `up -d --remove-orphans`; лишние контейнеры от прежних схем убираются;
+6. проверяет `http://127.0.0.1:8080/readyz` с ретраями — то есть что БД доступна, а не просто «процесс стартовал»;
+7. печатает `docker compose ps` и адрес стенда.
+
+Про миграции отдельно: порядок «схема → код» рассчитан на совместимые изменения (добавить таблицу
+или колонку). Ломающие (переименование, удаление) в один шаг не укладываются — нужен expand/contract
+(§5.5). Откат схемы `--migrate` не делает: только вперёд.
+
+**nginx хоста и TLS**
+
+```bash
+sudo cp /srv/pingboard/app/deploy/nginx-host.dev.conf /etc/nginx/sites-available/pingboard-dev
+sudo sed -i 's/pingboard.example.com/<ваш-домен>/g' /etc/nginx/sites-available/pingboard-dev
+sudo ln -s /etc/nginx/sites-available/pingboard-dev /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d <ваш-домен>       # получит сертификат и включит 443-блок
+```
+
+Порядок может быть и обратным (сначала certbot в режиме `--standalone`, потом конфиг) — важно, что
+до появления сертификата работает только HTTP-блок и ACME-челлендж.
+
+**Почему именно так**
+
+* `ForwardedHeaders__Enabled=true` + `ForwardedHeaders__KnownNetworks__0=172.16.0.0/12` (сеть docker):
+  без этого за прокси все клиенты приходят с адреса nginx, и лимит на логин (20/мин) становится общим
+  на весь стенд; с этим — Api доверяет заголовку только от своего прокси. Включать `Enabled=true`
+  с пустыми списками доверия нельзя: тогда `X-Forwarded-For` подделывается клиентом (§5.4).
+* `MigrateOnStart=false` — на стенде из реестра схему приводит отдельный процесс `migrate`
+  (§5.9), а не Api при старте: это то же разделение, что Job в k8s (фактор XII). Единственное
+  место, где `MigrateOnStart=true` остаётся, — dev-стенд из §4 (там это удобство: одна команда
+  `up` поднимает всё, включая схему).
+* `SeedOnStart=false` — демо-учётки на стенде нет, вход только регистрацией. Пароль этой учётки
+  известен из исходников, поэтому вне Development сид запрещён на уровне кода.
+* `API_BIND=127.0.0.1:8080` и `WEB_BIND=127.0.0.1:8081`: снаружи виден только nginx на хосте; порт
+  Api нужен лишь для диагностики с самого хоста (`curl localhost:8080/readyz`).
+
+**Проверено статически** (Docker-демон на машине, где это писалось, недоступен):
+
+* `docker compose config` с новыми файлами даёт exit 0 и подтверждает: у `api`/`worker` образ
+  `ghcr.io/owner/pingboard-api:sha-abc1234`, у `web` — `.../pingboard-web:sha-abc1234`, `build:`
+  не остаётся, `mem_limit` и `logging` на месте, порты публикуются на `127.0.0.1`;
+* запуск того же набора без `IMAGE`/`IMAGE_TAG` падает с `required variable IMAGE is missing a value`
+  (fail-fast, а не `image: ":"`);
+* `yaml`-разбор `.github/workflows/ci.yml` проходит, оба `run`-блока выката разобраны по структуре;
+* восстановление зависимостей в CI будет идти `--locked-mode` с источником nuget.org — это проверено
+  локально: `dotnet restore backend/Pingboard.sln --locked-mode --configfile <nuget.org>` → exit 0.
+
+**Не проверено** (нужен живой VPS и прогон Actions): сам выкат по SSH, `docker login` в GHCR с PAT,
+работа `certbot`, и то, что собранный образ стартует на VPS. Первый прогон конвейера стоит делать
+сразу после пуша — это единственный способ проверить ступени `build-push` и `deploy`.
+
+### 5.10. Локальный k8s (k3d) и манифесты
+
+Локальный кластер нужен для двух вещей: проверить манифесты до реального стенда и получить
+то, чего compose не умеет — Job для миграций, самовосстановление, нормальные пробы. Кластер
+поднимается на этой же машине, поэтому Nginx/Docker Desktop должны работать.
+
+**Состав манифестов**
+
+```
+k8s/
+├─ base/                      # то, что одинаково у всех: Namespace, ConfigMap, Postgres,
+│  ├─ 00-namespace.yaml       #   Deployment api/worker/web, Service, Ingress, NetworkPolicy
+│  ├─ 10-configmap.yaml
+│  ├─ 20-postgres.yaml        # StatefulSet + PVC (данные переживают пересоздание пода)
+│  ├─ 30-api.yaml             # Service + Deployment, liveness /healthz, readiness /readyz
+│  ├─ 40-worker.yaml          # та же сборка, другая команда; проба по свежести пульса
+│  ├─ 50-web.yaml             # nginx под непривилегированным пользователем + Ingress
+│  ├─ 60-migrate-job.yaml     # админ-процесс: --migrate и выход (не входит в kustomization)
+│  ├─ 70-netpol.yaml          # к Postgres ходят только api/worker/migrate
+│  ├─ 80-secret.example.yaml  # образец Secret'а, в git секретов нет
+│  └─ kustomization.yaml
+├─ overlays/dev/              # Development, миграции на старте, сид демо-учётки
+├─ overlays/prod/             # Production, миграции Job'ом, доверие X-Forwarded-For
+└─ dev.env.example            # образец секретов для локального стенда (dev.env — в .gitignore)
+```
+
+**Запуск**
+
+```powershell
+# 1. Образы: либо из GHCR (нужны GHCR_USER/GHCR_TOKEN), либо локальные — тогда сначала сборка
+docker compose -f deploy/docker-compose.yml --profile web build
+
+# 2. Кластер и стенд (скрипт идемпотентен: существующий кластер переиспользуется)
+powershell -ExecutionPolicy Bypass -File scripts/k3d-up.ps1 -LocalImages
+
+# 3. Стенд: http://pingboard.localhost (если 80 занят — ключ -HttpPort 8080)
+#    Логин демо-учёткой: demo@pingboard.local / demo-password (SeedOnStart=true только в dev-оверлее)
+```
+
+Порядок, который соблюдает скрипт: манифесты → Postgres `healthy` → **Job migrate** → Api и Worker.
+В k8s это можно было бы выразить через `initContainer` или Helm-хук, но Job применён явно: он
+виден в `kubectl get jobs`, его лог остаётся после завершения (`ttlSecondsAfterFinished`), а
+повторный запуск — это `delete job` + `apply`. Именно так админ-процесс и должен выглядеть
+(фактор XII), в отличие от `MigrateOnStart` у compose-стенда.
+
+**Что проверить руками после первого запуска**
+
+```bash
+kubectl -n pingboard get pods,svc,ingress
+kubectl -n pingboard logs deployment/worker | head          # JSON-логи (фактор XI)
+kubectl -n pingboard exec deployment/api -- curl -fsS localhost:8080/healthz
+kubectl -n pingboard delete pod -l app.kubernetes.io/name=api   # поднимется заново
+kubectl -n pingboard scale deployment/api --replicas=2          # реплики без правки compose
+kubectl -n pingboard rollout restart deployment/worker          # итерация доигрывается, не теряется
+```
+
+**Обновление версии и откат в k8s**
+
+```bash
+# что закатано сейчас (теги всех workload'ов стенда)
+kubectl -n pingboard get deploy,statefulset \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[*].image}{"\n"}{end}'
+
+# новая версия: тег из того же workflow, что и для VPS (sha-<commit>)
+cd k8s/overlays/dev
+kustomize edit set image ghcr.io/OWNER/pingboard-api:sha-<новый>
+kustomize edit set image ghcr.io/OWNER/pingboard-web:sha-<новый>
+kubectl apply -k .
+kubectl -n pingboard rollout status deployment/api
+kubectl -n pingboard rollout status deployment/worker
+
+# откат — та же команда с прошлым тегом (либо `kubectl rollout undo`, если манифесты
+# не менялись и нужен именно предыдущий ReplicaSet)
+kustomize edit set image ghcr.io/OWNER/pingboard-api:sha-<прошлый>
+kubectl apply -k .
+```
+
+Оговорки те же, что и для compose (§5.5): тег обязан быть неизменяемым (`sha-<commit>`, не
+`latest`), иначе «откат» превращается в «применили неизвестно что»; миграции **вперёд не
+откатываются** (`--migrate` умеет только применять), поэтому перед обновлением со сменой схемы
+нужен бэкап, а ломающие изменения делаются в два шага (expand/contract).
+
+**Чем это отличается от compose (и почему это не «четвёртый способ запуска»)**
+
+| Свойство | compose | k8s |
+|---|---|---|
+| Миграции | профиль `migrate` + `run --rm` | Job (фактор XII), Api с `MigrateOnStart=false` |
+| Остановка | `stop_grace_period: 15s` | `terminationGracePeriodSeconds: 30` (бюджет приложения 10 с + запас на снятие endpoint'а) и `preStop: sleep 3` — без него при rolling update изредка проскакивает 502 |
+| Реплики Api | мешал фиксированный порт → надстройка `scale.yml` | ничего не мешает: Service сам находит эндпоинты; лимит в памяти процесса остаётся |
+| Логи | ротация в демоне Docker | ротация в kubelet (`container-log-max-size`), задаётся при создании кластера |
+| Проба воркера | healthcheck compose: `dotnet worker/Pingboard.Worker.dll --self-check` | `livenessProbe` той же командой (режим самопроверки: бинарник читает пульс и возвращает 0/1) |
+| Секреты | `.env` рядом с compose | Secret, создаётся из `k8s/dev.env` (файл в .gitignore) |
+
+Тег образа живёт в `overlays/dev/kustomization.yaml` (секция `images`) — это штатный способ
+kustomize; замените `OWNER` на свой логин GitHub. Проверить итоговые манифесты без применения:
+`kubectl kustomize k8s/overlays/dev`.
+
+**Что проверено, а что нет**
+
+Проверено на машине без кластера: `kubectl kustomize` рендерит оба оверлея без ошибок
+(kustomize v5.8.1), и по рендеру прогнаны инварианты — селекторы Service совпадают с метками
+подов, пробы ссылаются на существующие порты, у всех Deployment есть `requests` и
+`terminationGracePeriodSeconds`, `volumeMounts` ссылаются на объявленные `volumes`, Ingress
+указывает на существующий Service и его порт, Secret'а в наборе нет. Не проверено: применение
+на живом кластере (`kubectl apply`), работа PVC от local-path, `k3d image import`, пробы
+в реальном времени. Первый прогон `scripts/k3d-up.ps1` — это и есть проверка.
 
 ---
 

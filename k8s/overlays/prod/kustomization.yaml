@@ -1,0 +1,34 @@
+# k8s/overlays/prod/kustomization.yaml — «прод» в кластере.
+#
+# Чем отличается от dev-оверлея: только ConfigMap (Production, миграции Job'ом, доверие прокси)
+# и теги образов. Тот же base, тот же образ, тот же код — это и есть dev/prod parity (фактор X):
+# отличие сводится к значениям конфигурации, а не к сборкам.
+#
+# Перед применением подставьте своё:
+#   * OWNER в секции images — владелец пакета в GHCR;
+#   * ingressClassName в base/50-web.yaml (здесь traefik по умолчанию; для ingress-nginx — nginx);
+#   * host в base/50-web.yaml (pingboard.localhost) — на реальный домен.
+# Проще всего через `kustomize edit set image` и patch'и оверлея, чтобы base оставался чистым.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pingboard
+
+resources:
+  - ../../base
+
+patches:
+  - path: patch-configmap.yaml
+
+images:
+  - name: ghcr.io/OWNER/pingboard-api
+    newTag: latest
+  - name: ghcr.io/OWNER/pingboard-web
+    newTag: latest
+
+# ВНИМАНИЕ: `latest` здесь — заполнитель для первого применения. На реальном стенде тег
+# обязан быть неизменяемым (sha-<commit> из workflow, см. DEPLOY §5.9): иначе «что закатано»
+# не определить, а откат превращается в пересборку. Откат по тегу:
+#   kustomize edit set image ghcr.io/OWNER/pingboard-api:sha-abc1234
+# и `kubectl apply -k` тем же оверлеем.

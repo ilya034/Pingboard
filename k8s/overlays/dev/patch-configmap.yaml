@@ -1,0 +1,20 @@
+# k8s/overlays/dev/patch-configmap.yaml — отличия dev-стенда (k3d) от базы.
+#
+# Стратегический merge по имени: меняются только перечисленные ключи, остальные приходят из базы.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pingboard-config
+  namespace: pingboard
+data:
+  # На dev-стенде нужен OpenAPI + Scalar и демо-данные для входа, на «проде» — нет.
+  ASPNETCORE_ENVIRONMENT: Development
+  # Схему приводит сам Api (MVP-режим). В prod-оверлее это false, там миграции — Job.
+  MigrateOnStart: "true"
+  # Демо-учётка. Вне Development сид запрещён кодом, поэтому это безопасно только здесь.
+  # Для входа: demo@pingboard.local / demo-password (см. DemoUser.cs).
+  SeedOnStart: "true"
+  # Прокси перед Api в k3d — Traefik внутри кластера. Доверяем сети pod'ов: k3d по умолчанию
+  # использует 10.42.0.0/16 для pod'ов и 10.43.0.0/16 для сервисов.
+  ForwardedHeaders__Enabled: "true"
+  ForwardedHeaders__KnownNetworks__0: "10.42.0.0/16"

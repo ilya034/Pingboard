@@ -1,0 +1,50 @@
+# k8s/base/10-configmap.yaml — несекретная конфигурация (фактор III: конфигурация из окружения).
+#
+# Здесь только то, что одинаково для любого стенда. Оверлеи переопределяют через patch:
+# dev — окружение и Fluent, prod — MigrateOnStart и доверие прокси.
+# Секретов тут нет: ConnectionStrings__Default и Jwt__Secret приходят из Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pingboard-config
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/part-of: pingboard
+data:
+  ASPNETCORE_URLS: "http://+:8080"
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "pingboard"
+  POSTGRES_USER: "pingboard"
+  # Строка подключения здесь НЕ собирается: она целиком лежит в Secret (ключ
+  # ConnectionStrings__Default). Причина — не паранойя, а отсутствие надёжного способа
+  # подставить пароль в строку: сборка из частей потребовала бы подстановки $(VAR) внутри
+  # значения ConfigMap, а любая трансформация (kustomize/helm) обязана экранировать $,
+  # иначе подстановка молча не срабатывает. Один ключ в Secret снимает весь этот класс ошибок.
+  # Схему приводит сам Api только на dev-стенде (оверлей dev). На «проде» миграции —
+  # отдельный Job, поэтому в базе значение false (фактор XII).
+  MigrateOnStart: "false"
+  SeedOnStart: "false"
+  Jwt__ExpiresMinutes: "120"
+  Jwt__Issuer: "pingboard"
+  Jwt__Audience: "pingboard"
+  RateLimit__LoginPermitLimit: "20"
+  RateLimit__RegisterPermitLimit: "10"
+  RateLimit__AuthWindowSeconds: "60"
+  Probe__TimeoutMs: "5000"
+  # Барьер SSRF: true снимает запрет на внутренние адреса. Включать только осознанно.
+  Probe__AllowPrivateNetworks: "false"
+  Worker__TickSeconds: "5"
+  Worker__MaxParallel: "4"
+  Worker__BatchSize: "100"
+  Worker__HeartbeatPath: "/tmp/pingboard-worker-heartbeat"
+  # Порог свежести пульса для пробы --self-check. 120 с при тике 5 с — это 24 пропущенные
+  # итерации: «повис», а не «замешкался».
+  Worker__HeartbeatMaxAgeSeconds: "120"
+  Monitors__UptimeWindowHours: "24"
+  Monitors__UptimeBarSegments: "24"
+  Monitors__DashboardHistoryPerMonitor: "500"
+  # Разбор X-Forwarded-For выключен в базе: включается только там, где есть доверенный прокси
+  # (оверлей prod). Включённый без списка доверия — это дыра, а не удобство:
+  # ключ раздела rate limit — адрес соединения, и подделанный заголовок обходит лимит на логин.
+  ForwardedHeaders__Enabled: "false"

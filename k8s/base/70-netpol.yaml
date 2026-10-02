@@ -1,0 +1,60 @@
+# k8s/base/70-netpol.yaml — сетевые политики: кто с кем может разговаривать.
+#
+# В compose изоляцию даёт сеть Docker: postgres не публикует порт наружу. В k8s по умолчанию
+# «всё видят всё», поэтому то же свойство нужно описать явно — иначе смысл «БД доступна только
+# приложению» теряется (фактор IV).
+#
+# Требуется CNI с поддержкой NetworkPolicy. В k3s/k3d это kube-router (включён по умолчанию),
+# поэтому политики применяются; в кластере без поддержки они просто игнорируются — это
+# безопаснее, чем полагаться на «мы не публиковали порт».
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-from-app
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/part-of: pingboard
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    # Только Api, Worker и админ-процесс миграций. Web к БД не ходит: он общается с Api по HTTP.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: worker
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: migrate
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Api доступен только из web (он же проксирует /api и проверки) и из ingress-контроллера.
+# Прямой доступ «из интернета» в кластере отсутствует и так, но политика фиксирует это
+# как намерение, а не как случайность конфигурации.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-from-web
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/part-of: pingboard
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: web
+      ports:
+        - protocol: TCP
+          port: 8080

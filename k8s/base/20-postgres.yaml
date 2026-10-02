@@ -1,0 +1,109 @@
+# k8s/base/20-postgres.yaml — backing service стенда (фактор IV).
+#
+# StatefulSet, а не Deployment: у БД должно быть устойчивое имя (postgres-0) и собственный
+# PersistentVolumeClaim. В k3d PVC обслуживается встроенным local-path provisioner'ом
+# (каталог на ноде), то есть данные переживают пересоздание пода, но не удаление кластера.
+#
+# ВАЖНО про PGDATA в postgres:18: путь монтирования — /var/lib/postgresql, а не .../data.
+# В 18+ данные лежат в подкаталоге с номером мажорной версии, и монтирование старого пути
+# роняет entrypoint (в compose это описано в deploy/docker-compose.yml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: pingboard
+spec:
+  # Headless-сервис: клиенты обращаются к postgres.pingboard.svc (DNS отдаёт адрес пода).
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: pingboard
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: pingboard
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:18-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          envFrom:
+            - configMapRef:
+                name: pingboard-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pingboard-secrets
+                  key: POSTGRES_PASSWORD
+            # PGDATA внутри смонтированного тома: /var/lib/postgresql/18/docker.
+            - name: PGDATA
+              value: /var/lib/postgresql/18/docker
+          args:
+            # Стенд на 1-2 ГБ RAM: max_connections=100 — лишняя память на подключение,
+            # effective_cache_size говорит планировщику, на что он может рассчитывать.
+            - -c
+            - max_connections=50
+            - -c
+            - shared_buffers=128MB
+            - -c
+            - effective_cache_size=384MB
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            # Requests и limits вместе: при одном limit под получает QoS Burstable и может
+            # быть вытеснен первым при нехватке памяти на узле. На одноузловом стенде это
+            # означает, что жертвой станет именно БД, а выглядеть это будет как «сервис
+            # сам перезапустился». Requests гарантируют ей минимум, limits не дают съесть узел.
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

@@ -4,6 +4,7 @@ import { toApiFailure, type ApiFailure } from '../api/client'
 import { FailureBanner } from '../components/FailureBanner'
 import { FieldErrorText } from '../components/FieldErrorText'
 import { useAuth } from '../hooks/useAuth'
+import { apiDocsPath } from '../lib/env'
 
 type Mode = 'login' | 'register'
 
@@ -109,12 +110,15 @@ export function LoginPage() {
           сидом Api в Development. Регистрация ограничена 10 запросами на адрес, вход — 20.
         </p>
 
-        <p className="login-hint">
-          Проверить API напрямую:{' '}
-          <a href="http://localhost:8080/scalar/v1" target="_blank" rel="noreferrer">
-            Scalar (только Development)
-          </a>
-        </p>
+        {/* Ссылка на документацию API: есть только там, где Api её отдаёт (Development). */}
+        {apiDocsPath && (
+          <p className="login-hint">
+            Проверить API напрямую:{' '}
+            <a href={apiDocsPath} target="_blank" rel="noreferrer">
+              Scalar (только Development)
+            </a>
+          </p>
+        )}
       </div>
     </div>
   )

@@ -23,7 +23,11 @@ Uptime-монитор для SRE-курса (мини-UptimeRobot): пользо
 | **JWT-авторизация (M4)**: защита маршрутов, владелец из claim `sub` | ✅ с тестами |
 | EF-миграция `InitialCreate` | ✅ |
 | deploy: Dockerfile.api/web, compose, nginx | ✅ есть; пошаговая инструкция — [DEPLOY.md](DEPLOY.md) (образы не собирались: нет доступа к реестру образов) |
-| Тесты | ✅ 79 (32 Domain + 47 Application), `dotnet test` / in-process раннер |
+| CI/CD: GitHub Actions → GHCR → VPS по SSH | ✅ есть ([.github/workflows/ci.yml](.github/workflows/ci.yml) + `deploy/docker-compose.registry.yml`, `vps.yml`, `nginx-host.dev.conf`); прогонов на живом runner'е и VPS пока не было — см. DEPLOY §5.9 |
+| CI проверяет и фронт | ✅ ступени `web` (npm ci → tsc → сборка → аудит) и `manifests` (рендер оверлеев + kubeconform) в том же workflow |
+| k8s: манифесты + локальный стенд (k3d) | ✅ есть (`k8s/base`, `k8s/overlays/dev|prod`, `scripts/k3d-up.ps1`); на живом кластере не применялись — см. DEPLOY §5.10 |
+| Тесты | ✅ 90 (32 Domain + 58 Application, включая пробу живости воркера), `dotnet test` / in-process раннер |
+| Проба живости воркера (`--self-check`) | ✅ режим той же сборки: бинарник читает файл-пульс и возвращает 0/1; им пользуются healthcheck compose и `livenessProbe` в k8s |
 | Замечания ревью M0 (ошибки/контракты/планировщик) | ✅ разобраны, см. §10 |
 | `frontend/` (Vite + React + TS) | ✅ **M3**: дашборд с полосой доступности и поллингом, форма CRUD, страница монитора со спарклайном, логин/регистрация (M4) |
 
@@ -98,9 +102,11 @@ sre/
 │     │                           #   MonitorForm, FailureBanner, FieldErrorText
 │     ├─ lib/format.ts            #   форматирование времени/задержек/uptime
 │     └─ styles.css               #   одна тёмная тема на всё приложение
-├─ scripts/                       # build, build-web, build-local-feed, run-tests, smoke-api — инструменты репозитория
-├─ deploy/                        # Dockerfile.api, Dockerfile.web, compose (dev/prod), nginx.conf
-├─ DEPLOY.md                      # развёртывание: dev-стенд, прод на VPS, TLS, бэкапы, откат
+├─ scripts/                       # build, build-web, build-local-feed, run-tests, smoke-api, k3d-up — инструменты репозитория
+├─ .github/workflows/ci.yml       # CI/CD: тесты → образ в GHCR → (вручную) выкат на VPS по SSH
+├─ deploy/                        # Dockerfile.api/web, compose (dev/prod/registry/vps), nginx-конфиги
+├─ k8s/                           # манифесты: base + overlays dev/prod (kustomize), см. DEPLOY §5.10
+├─ DEPLOY.md                      # развёртывание: dev-стенд, прод на VPS, TLS, бэкапы, откат, CI/CD, k8s
 ├─ Directory.Build.props          # net10.0, Nullable, WarningsAsErrors — на все проекты, вкл. backend
 ├─ NuGet.config                   # локальный оффлайн-фид .packages (см. §7)
 ├─ .dockerignore                  # контекст сборки образов: без node_modules/bin/obj и без секретов
@@ -275,7 +281,7 @@ Invoke-RestMethod -Uri http://localhost:8080/api/monitors -Headers @{ Authorizat
 
 `SeedOnStart`, `MigrateOnStart`, `Cors__Origins__*` — из §9 PLAN.md. Отдельно про миграции: `dotnet Pingboard.Api.dll --migrate` — админ-режим той же сборки, который применяет схему и выходит (веб-сервер не поднимается); им пользуется профиль `migrate` на «проде».
 
-Секция `Monitors` отвечает за представление: окно uptime, число сегментов полосы, глубину истории на дашборде. `Probe` — таймаут, набор «здоровых» статусов и барьер SSRF (`Probe__AllowPrivateNetworks`, по умолчанию `false`). `Worker` — тик, размер батча, параллелизм и файл-пульс для healthcheck. `RateLimit` — сколько запросов к `/api/auth/*` разрешено с одного адреса за окно; политики раздельные (`LoginPermitLimit` — 20, `RegisterPermitLimit` — 10: регистрация ещё и пишет в БД). Старый общий ключ `RateLimit__AuthPermitLimit` продолжает работать как фолбэк, чтобы существующие `.env` и `scripts/smoke-api.ps1` не сломались. `ForwardedHeaders` — доверие `X-Forwarded-For` от прокси (по умолчанию выключено, см. §6.5).
+Секция `Monitors` отвечает за представление: окно uptime, число сегментов полосы, глубину истории на дашборде. `Probe` — таймаут, набор «здоровых» статусов и барьер SSRF (`Probe__AllowPrivateNetworks`, по умолчанию `false`). `Worker` — тик, размер батча, параллелизм, файл-пульс для healthcheck и порог его свежести (`Worker__HeartbeatMaxAgeSeconds`, по умолчанию 120 с). Пульс проверяет сам воркер в режиме `--self-check` (`dotnet worker/Pingboard.Worker.dll --self-check`): так проба не зависит от `date`/`stat` и `sh` в образе и одинаково работает в compose и в k8s. `RateLimit` — сколько запросов к `/api/auth/*` разрешено с одного адреса за окно; политики раздельные (`LoginPermitLimit` — 20, `RegisterPermitLimit` — 10: регистрация ещё и пишет в БД). Старый общий ключ `RateLimit__AuthPermitLimit` продолжает работать как фолбэк, чтобы существующие `.env` и `scripts/smoke-api.ps1` не сломались. `ForwardedHeaders` — доверие `X-Forwarded-For` от прокси (по умолчанию выключено, см. §6.5).
 
 Пароль ограничен 8..128 символами (`PasswordRules`, общие для регистрации и входа): нижняя граница — от подбора, верхняя — от «пароля» в мегабайт, на котором PBKDF2 считается заметное время.
 
