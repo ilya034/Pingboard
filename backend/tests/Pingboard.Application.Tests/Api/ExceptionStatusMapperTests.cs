@@ -51,7 +51,7 @@ public sealed class ExceptionStatusMapperTests
         var mapped = ExceptionStatusMapper.Map(exception);
 
         Assert.Equal(StatusCodes.Status400BadRequest, mapped.Status);
-        Assert.Equal(["Пользователь с таким email уже зарегистрирован."], mapped.Errors!["Email"]);
+        Assert.Equal(["A user with this email is already registered."], mapped.Errors!["Email"]);
     }
 
     [Fact]

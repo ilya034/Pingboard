@@ -10,7 +10,7 @@ using System.Runtime.Loader;
 var root = FindRepositoryRoot(AppContext.BaseDirectory);
 if (root is null)
 {
-    Console.Error.WriteLine("Не найден корень решения (backend/Pingboard.sln) выше текущего каталога.");
+    Console.Error.WriteLine("Solution root (backend/Pingboard.sln) was not found in any parent directory.");
     return 2;
 }
 
@@ -31,7 +31,7 @@ foreach (var project in testProjects)
 
     if (!File.Exists(assemblyPath))
     {
-        Console.Error.WriteLine($"Не найдена сборка тестов: {assemblyPath}. Соберите решение: dotnet build backend/Pingboard.sln -m:1");
+        Console.Error.WriteLine($"Test assembly not found: {assemblyPath}. Build the solution with: dotnet build backend/Pingboard.sln -m:1");
         exitCode = 2;
         continue;
     }
@@ -96,7 +96,7 @@ foreach (var project in testProjects)
     }
 }
 
-Console.WriteLine(exitCode == 0 ? "ВСЕ ТЕСТЫ ПРОШЛИ" : "ЕСТЬ УПАВШИЕ ТЕСТЫ");
+Console.WriteLine(exitCode == 0 ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
 return exitCode;
 
 static IEnumerable<object?[]> BuildArgumentSets(MethodInfo method)
