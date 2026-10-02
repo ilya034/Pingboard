@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- ЯДРО. Ноль NuGet-зависимостей — это и есть правило зависимостей Clean Architecture. -->
+    <PropertyGroup>
+        <RootNamespace>Pingboard.Domain</RootNamespace>
+        <AssemblyName>Pingboard.Domain</AssemblyName>
+    </PropertyGroup>
+
+</Project>

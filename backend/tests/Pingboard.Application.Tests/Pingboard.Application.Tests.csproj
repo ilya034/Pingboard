@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <RootNamespace>Pingboard.Application.Tests</RootNamespace>
+        <AssemblyName>Pingboard.Application.Tests</AssemblyName>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
+        <PackageReference Include="xunit"/>
+        <PackageReference Include="xunit.runner.visualstudio">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Pingboard.Application\Pingboard.Application.csproj"/>
+        <!-- Фейки и тесты ссылаются на типы домена (User, CheckResult, ProbeOutcome, MonitorRules) —
+             ссылка прямая, а не «через транзитивную зависимость Application». -->
+        <ProjectReference Include="..\..\src\Pingboard.Domain\Pingboard.Domain.csproj"/>
+        <!-- SQL построителей запросов (ListDueQuery, HistoryForManyQuery, UptimeRatiosQuery)
+             проверяется через ToQueryString: живой Postgres на этой машине нет, а планировщик
+             и «top N на монитор» — как раз то, что иначе не проверить вообще. -->
+        <ProjectReference Include="..\..\src\Pingboard.Infrastructure\Pingboard.Infrastructure.csproj"/>
+        <!-- JwtUserIdProvider и AuthenticationSetup живут в Api (точка композиции): именно их
+             надо проверять — что claim sub доходит до ICurrentUser и что схема принимает
+             токен, выписанный JwtTokenService. -->
+        <ProjectReference Include="..\..\src\Pingboard.Api\Pingboard.Api.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.Options"/>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions"/>
+        <PackageReference Include="Microsoft.Extensions.Configuration"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection"/>
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer"/>
+    </ItemGroup>
+
+    <!-- `Monitor` иначе конфликтует с System.Threading.Monitor (ImplicitUsings подключает System.Threading). -->
+    <ItemGroup>
+        <Using Include="Pingboard.Domain.Entities.Monitor" Alias="Monitor"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit"/>
+    </ItemGroup>
+
+</Project>

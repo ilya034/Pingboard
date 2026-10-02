@@ -1,0 +1,58 @@
+<Project>
+
+  <!-- Центральные версии NuGet: одна версия пакета на всё решение (фактор II).
+       В .csproj версии НЕ указываются — только <PackageReference Include="..." />.
+
+       ВАЖНО про версии: они подобраны под то, что реально доступно в restore-кэше
+       этой машины. Пакеты помечены как "отложено" — их нет в кэше, добавить,
+       когда появится доступ к nuget.org (см. §2 PLAN.md):
+         - FluentValidation        (валидация сценариев)
+         - BCrypt.Net-Next         (хеширование паролей)
+         - prometheus-net.AspNetCore (/metrics) -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="Infrastructure — persistence">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.7" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+  </ItemGroup>
+
+  <ItemGroup Label="Infrastructure — adapters / BCL extensions">
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.7" />
+    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.17.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Api">
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.4" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.14.11" />
+  </ItemGroup>
+
+  <ItemGroup Label="Worker">
+    <!-- Минимальный консольный хост воркера: полный Microsoft.Extensions.Hosting
+         недоступен в оффлайн-фиде, см. комментарий в Pingboard.Worker.csproj. -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.7" />
+  </ItemGroup>
+
+  <ItemGroup Label="Tests">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.assert" Version="2.9.3" />
+    <PackageVersion Include="xunit.v3" Version="3.1.0" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+  </ItemGroup>
+
+</Project>

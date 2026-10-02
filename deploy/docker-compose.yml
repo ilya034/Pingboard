@@ -1,0 +1,88 @@
+# deploy/docker-compose.yml — локальный стенд: postgres + api + worker + web.
+# Все значения берутся из .env (фактор III/IV). Запуск:
+#   docker compose --env-file ../.env -f deploy/docker-compose.yml up --build
+#
+# ВАЖНО: `--env-file` указывает на корневой .env, потому что подстановка ${...} в самом
+# compose-файле читает .env из каталога compose-файла (deploy/), а не из корня репозитория.
+# Без флага POSTGRES_* развернулись бы в пустые значения — у postgres не было бы ни
+# пользователя, ни базы. Значения ниже — те же умолчания, что и в .env.example.
+name: pingboard
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pingboard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pingboard}
+      POSTGRES_DB: ${POSTGRES_DB:-pingboard}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    # Порт наружу не публикуем: БД доступна только внутри сети compose.
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    env_file: ../.env
+    environment:
+      # Один образ, разные команды — поэтому команда задаётся здесь (фактор VIII).
+      ASPNETCORE_URLS: http://+:8080
+    ports:
+      # На dev-стенде Api нужен с хоста (curl, smoke-скрипты), поэтому публикуем; на «проде»
+      # этот же параметр задаётся как 127.0.0.1:8081 (см. .env.example) — снаружи только nginx.
+      - "${API_BIND:-0.0.0.0:8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    command: ["dotnet", "worker/Pingboard.Worker.dll"]
+    env_file: ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # У воркера нет порта, поэтому проверяем не процесс, а пульс: цикл доиграл итерацию
+      # за последние две минуты. Иначе зависший на запросе к БД воркер выглядит здоровым.
+      test: ["CMD-SHELL", "test $(( $(date +%s) - $(stat -c %Y /tmp/pingboard-worker-heartbeat) )) -lt 120"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    # Воркер stateless: его можно убивать и перезапускать в любой момент (факторы VI, IX).
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    # SPA появится в M3 (каталог frontend/ пока пуст, собирать нечего), поэтому web — профиль:
+    # без него `docker compose up` поднимает postgres + api + worker, а не падает на сборке
+    # несуществующего фронта. Когда фронт появится: docker compose --profile web up --build.
+    profiles: ["web"]
+    ports:
+      # 8081, а не 8080: 8080 на dev-стенде занят самим Api (прямой доступ для curl).
+      - "${WEB_BIND:-8081}:80"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata: {}

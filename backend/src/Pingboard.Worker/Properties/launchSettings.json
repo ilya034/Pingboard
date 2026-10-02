@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "Pingboard.Worker": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "ConnectionStrings__Default": "Host=localhost;Port=5432;Database=pingboard;Username=pingboard;Password=pingboard",
+        "Worker__TickSeconds": "5",
+        "Worker__MaxParallel": "8"
+      }
+    }
+  }
+}

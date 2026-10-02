@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Утилита для этой песочницы: запускает тесты в процессе, минуя VSTest.
+
+    Зачем: VSTest-хост падает на старте (System.Diagnostics.Process.EnableRaisingEvents
+    → OpenProcess → Access denied), потому что песочница запрещает следить за родительским
+    процессом. На обычной машине нужен обычный `dotnet test` — эта утилита только запасной путь.
+
+    Из решения (Pingboard.sln) намеренно исключена: это инструмент окружения, не продукт.
+    Лежит внутри backend/, поэтому наследует общий Directory.Build.props из корня репозитория
+    (TargetFramework, центральные версии пакетов) и находит backend/Pingboard.sln как корень решения.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Pingboard.TestRunner</RootNamespace>
+    <AssemblyName>Pingboard.TestRunner</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- xunit нужен, чтобы раннер и тесты делили один тип Assert и атрибуты [Fact]/[Theory]. -->
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+  </ItemGroup>
+
+  <!--
+    Тесты Api-слоя (JwtUserIdProvider, AuthenticationSetup) используют типы ASP.NET Core
+    (HttpContext, IHttpContextAccessor). Без ссылки на shared framework загрузка
+    Pingboard.Application.Tests падает с FileNotFoundException на Microsoft.AspNetCore.Http.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,46 @@
+# deploy/docker-compose.prod.yml — переопределения для «прода» на VPS (фактор X: тот же образ, другой env).
+# Запуск (--env-file обязателен: подстановка ${...} читает .env из каталога compose-файла):
+#   docker compose --env-file ../.env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+#   docker compose --env-file ../.env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml --profile migrate run --rm migrate
+#
+# Отличия от dev-стенда: Api не публикуется наружу (API_BIND=127.0.0.1:8081 в .env — см. .env.example),
+# схему приводит отдельный one-off процесс migrate (фактор XII), а не сам Api.
+#
+# Порт Api здесь намеренно НЕ переопределяется: compose складывает списки ports из обоих файлов,
+# и вместо замены получилось бы два маппинга — то есть Api остался бы висеть на 0.0.0.0:8080,
+# хотя «прод» должен закрывать его от интернета. Поэтому единственная точка настройки — API_BIND.
+name: pingboard
+
+services:
+  api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Схему приводит отдельный процесс migrate, а не сам Api.
+      MigrateOnStart: "false"
+
+  worker:
+    environment:
+      DOTNET_ENVIRONMENT: Production
+
+  postgres:
+    # На проде том должен лежать на хостовом диске с бэкапами.
+    volumes:
+      - ${PGDATA_PATH:-/srv/pingboard/pgdata}:/var/lib/postgresql/data
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    # Админ-процесс: отдельная команда, а не «фоновый режим приложения» (фактор XII).
+    # --migrate — режим «применить схему и выйти» в самой сборке: в рантайм-образе нет SDK,
+    # поэтому migrate-bundle из §9 PLAN.md остаётся задачей M5, но процесс уже honest —
+    # он не поднимает второй Api, а завершается с кодом 0 (или с ошибкой миграции).
+    command: ["dotnet", "Pingboard.Api.dll", "--migrate"]
+    env_file: ../.env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    profiles: ["migrate"]

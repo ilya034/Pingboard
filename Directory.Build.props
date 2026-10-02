@@ -1,0 +1,25 @@
+<Project>
+
+    <!-- Общие настройки для ВСЕХ проектов решения (фактор II: зависимости и сборка объявлены централизованно). -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+        <!-- Центральный аудит NuGet ругается warning'ами о транзитивных пакетах:
+             с TreatWarningsAsErrors это ломает сборку по независящим от кода причинам. -->
+        <NuGetAudit>false</NuGetAudit>
+        <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
+    </PropertyGroup>
+
+    <!-- Версия продукта — одна на весь релиз (фактор V: один релиз, много процессов). -->
+    <PropertyGroup>
+        <Version>0.1.0</Version>
+        <NeutralLanguage>ru</NeutralLanguage>
+    </PropertyGroup>
+
+</Project>

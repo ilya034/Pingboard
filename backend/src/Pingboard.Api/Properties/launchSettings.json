@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:8080",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__Default": "Host=localhost;Port=5432;Database=pingboard;Username=pingboard;Password=pingboard",
+        "MigrateOnStart": "true"
+      }
+    },
+    "http-scalar": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "launchUrl": "scalar/v1",
+      "applicationUrl": "http://localhost:8080",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__Default": "Host=localhost;Port=5432;Database=pingboard;Username=pingboard;Password=pingboard",
+        "MigrateOnStart": "true"
+      }
+    }
+  }
+}

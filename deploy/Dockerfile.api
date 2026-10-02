@@ -1,0 +1,42 @@
+# deploy/Dockerfile.api — ОДИН образ для api и worker (фактор VIII: один релиз, разные команды).
+# Сборка всегда из корня репозитория: docker build -f deploy/Dockerfile.api .
+
+# ── build ────────────────────────────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+# Сначала только манифесты зависимостей: слой restore кэшируется отдельно от кода (фактор II/V).
+# NuGet.config переносим как есть: источник ".packages" в нём относительный и разрешается
+# относительно каталога конфига — то есть /src/backend/.packages, который создаётся ниже.
+COPY backend/Directory.Build.props backend/Directory.Packages.props backend/NuGet.config backend/
+COPY backend/src/Pingboard.Domain/*.csproj backend/src/Pingboard.Domain/
+COPY backend/src/Pingboard.Application/*.csproj backend/src/Pingboard.Application/
+COPY backend/src/Pingboard.Infrastructure/*.csproj backend/src/Pingboard.Infrastructure/
+COPY backend/src/Pingboard.Api/*.csproj backend/src/Pingboard.Api/
+COPY backend/src/Pingboard.Worker/*.csproj backend/src/Pingboard.Worker/
+RUN dotnet restore backend/src/Pingboard.Api/Pingboard.Api.csproj && dotnet restore backend/src/Pingboard.Worker/Pingboard.Worker.csproj
+
+COPY backend/ backend/
+RUN dotnet publish backend/src/Pingboard.Api/Pingboard.Api.csproj -c Release -o /app --no-restore
+RUN dotnet publish backend/src/Pingboard.Worker/Pingboard.Worker.csproj -c Release -o /app/worker --no-restore
+# Обе точки входа в одном образе: /app — Api, /app/worker — Worker.
+
+# ── runtime ──────────────────────────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+
+# curl нужен healthcheck'у compose.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build /app ./
+
+# Непривилегированный пользователь: процесс не должен быть root.
+USER $APP_UID
+
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
+
+# Воркер переопределяет команду в compose: ["dotnet", "worker/Pingboard.Worker.dll"]
+CMD ["dotnet", "Pingboard.Api.dll"]
