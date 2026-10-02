@@ -108,6 +108,20 @@ jobs:
         working-directory: frontend
         run: npm run typecheck
 
+      # Линтер ловит то, чего не видит `tsc`: в первую очередь правила хуков React
+      # (`rules-of-hooks` — именно на этом раньше стоял `useState` после раннего возврата
+      # в MonitorDetailPage), а также неиспользуемые импорты и забытые зависимости эффектов.
+      - name: Линтер
+        working-directory: frontend
+        run: npm run lint
+
+      # Юнит-тесты на чистые функции: разбор ProblemDetails и `retry-after`, политика
+      # повторов (включая «ручная попытка не повторяется»), форматирование и состояние
+      # монитора. DOM не нужен — тесты идут в окружении node.
+      - name: Тесты
+        working-directory: frontend
+        run: npm test
+
       # Сборка с тем же build-arg, что использует dev-стенд: если ссылка на документацию
       # API ломает сборку или типы, это видно здесь, а не на стенде.
       - name: Сборка SPA
@@ -115,6 +129,22 @@ jobs:
         env:
           VITE_API_DOCS_PATH: /scalar/v1
         run: npm run build
+
+      # Обратная проверка к предыдущему шагу: при пустом VITE_API_DOCS_PATH в бандле не
+      # должно остаться строк демо-учётки. Предзаполнение формы входа живёт в ветке,
+      # которую минификатор вырезает по константному условию (frontend/src/lib/demo.ts);
+      # если условие перестанет сворачиваться, пароль вернётся в прод-бандл — этот шаг
+      # заметит регресс, потому что строки ищутся именно в собранном файле.
+      - name: Прод-сборка без демо-учётки
+        working-directory: frontend
+        env:
+          VITE_API_DOCS_PATH: ""
+        run: |
+          npm run build
+          if grep -rqE 'demo-password|demo@pingboard' dist/assets; then
+            echo "В прод-бандле остались строки демо-учётки — см. frontend/src/lib/demo.ts" >&2
+            exit 1
+          fi
 
       - name: Аудит зависимостей
         working-directory: frontend
@@ -129,24 +159,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # На runner'е уже есть kubectl, то есть и kustomize — им рендерятся оба оверлея,
-      # а схемам Kubernetes их проверяет kubeconform (kubectl apply --dry-run=server
+      # На runner'е уже есть kubectl, то есть и kustomize — им рендерятся оба оверлея в один
+      # каталог, а схемам Kubernetes их проверяет kubeconform (kubectl apply --dry-run=server
       # требует живого кластера, поэтому в CI используется оффлайн-валидатор схем).
       - name: Рендер оверлеев
         run: |
           kubectl version --client
-          kubectl kustomize k8s/overlays/dev  > /tmp/dev.yaml
-          kubectl kustomize k8s/overlays/prod > /tmp/prod.yaml
-          echo "dev:  $(grep -c '^kind:' /tmp/dev.yaml) объектов"
-          echo "prod: $(grep -c '^kind:' /tmp/prod.yaml) объектов"
+          mkdir -p /tmp/rendered
+          kubectl kustomize k8s/overlays/dev  > /tmp/rendered/dev.yaml
+          kubectl kustomize k8s/overlays/prod > /tmp/rendered/prod.yaml
+          echo "dev:  $(grep -c '^kind:' /tmp/rendered/dev.yaml) объектов"
+          echo "prod: $(grep -c '^kind:' /tmp/rendered/prod.yaml) объектов"
+          # Пустой или фрагментарный рендер должен валить конвейер здесь, а не превращаться
+          # в «kubeconform нечего проверять».
+          test "$(grep -c '^kind:' /tmp/rendered/dev.yaml)" -ge 10
+          test "$(grep -c '^kind:' /tmp/rendered/prod.yaml)" -ge 10
 
+      # Валидируются ОТРЕНДЕРЕННЫЕ манифесты, а не исходные файлы. Причина — не стилистика:
+      # рядом с манифестами лежат стратегические merge-патчи оверлеев (patch-api.yaml и др.),
+      # у которых есть kind: Deployment, но по схеме нет spec.selector и spec.template — это
+      # законный фрагмент, а не манифест. Схемная валидация исходного дерева падала именно
+      # на них (и на kustomization.yaml, который вообще не ресурс Kubernetes). Рендер даёт
+      # ровно то, что уедет в кластер: 12 объектов на оверлей.
       - name: Валидация схем
         uses: docker://ghcr.io/yannh/kubeconform:v0.7.0
         with:
           args: >-
-            -strict -summary -ignore-missing-schemas
-            -output pretty
-            /github/workspace/k8s/base /github/workspace/k8s/overlays
+            -strict -summary -output pretty
+            /tmp/rendered
 
   build-push:
     name: Образ в GHCR

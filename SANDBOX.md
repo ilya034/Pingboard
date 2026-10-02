@@ -228,7 +228,13 @@ npm run build:sandbox     # tsc --noEmit && vite build --configLoader native
 npm run dev:sandbox       # vite --configLoader native
 ```
 
-Что проверялось и **не** подошло: `--configLoader runner` падает на CJS-зависимости плагина (`ReferenceError: require is not defined` в `picomatch`); обычный `bundle` упирается в тот же `spawn EPERM`. Скрипты `dev`/`build` без суффикса оставлены «каноничными» (для Linux/Docker и обычных машин), а `*:sandbox` — для этой среды.
+Тот же `spawn EPERM` ловит и Vitest, но в двух местах: сначала на загрузке конфига (то же лекарство — `--configLoader native`), а затем при старте пула. Пул по умолчанию `forks` поднимает воркеры через `child_process.fork`, что в песочнице запрещено, поэтому тесты нужно гонять на пуле потоков:
+
+```powershell
+npm run test:sandbox      # vitest run --configLoader native --pool=threads
+```
+
+Что проверялось и **не** подошло: `--configLoader runner` падает на CJS-зависимости плагина (`ReferenceError: require is not defined` в `picomatch`); обычный `bundle` упирается в тот же `spawn EPERM`; `--pool=forks` с любыми опциями (`singleFork`, `isolate: false`) падает на `fork()` — ограничение на сам вызов, а не на число воркеров. Скрипты `dev`/`build`/`test` без суффикса оставлены «каноничными» (для Linux/Docker и обычных машин), а `*:sandbox` — для этой среды.
 
 ---
 
@@ -256,6 +262,7 @@ npm run dev:sandbox       # vite --configLoader native
 | 7 | теряется stdout нативных команд | прокачивать вывод через `2>&1 \| Out-Host` до `exit` |
 | 8 | кэш npm пишется вне workspace | `npm install --cache .npm-cache` (кэш в `.gitignore`) |
 | 9 | Vite делает `exec("net use")` → `spawn EPERM` | `npm run dev:sandbox` / `npm run build:sandbox` (`--configLoader native`) |
+| 10 | Vitest поднимает пул через `fork()` → `spawn EPERM` | `npm run test:sandbox` (`--pool=threads`) |
 
 ### Механика: почему это всё связано
 

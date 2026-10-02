@@ -2,8 +2,9 @@ import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { toApiFailure, type ApiFailure } from '../api/client'
 import { FailureBanner } from '../components/FailureBanner'
-import { FieldErrorText } from '../components/FieldErrorText'
+import { FieldErrorText, fieldErrorId, hasFieldError } from '../components/FieldErrorText'
 import { useAuth } from '../hooks/useAuth'
+import { demoCredentials } from '../lib/demo'
 import { apiDocsPath } from '../lib/env'
 
 type Mode = 'login' | 'register'
@@ -18,10 +19,11 @@ export function LoginPage() {
   const location = useLocation()
 
   const [mode, setMode] = useState<Mode>('login')
-  // В Development Api сеет демо-учётку (SeedOnStart): подставляем её, чтобы стенд открывался
-  // в один клик. Пароль тот же, что в README и DemoUser.
-  const [email, setEmail] = useState('demo@pingboard.local')
-  const [password, setPassword] = useState('demo-password')
+  // Предзаполнение — только на Development-стенде, где демо-учётка действительно создана
+  // (см. lib/demo.ts). В проде поля пустые: подставлять пароль несуществующего
+  // пользователя в форму входа нельзя.
+  const [email, setEmail] = useState(demoCredentials?.email ?? '')
+  const [password, setPassword] = useState(demoCredentials?.password ?? '')
   const [failure, setFailure] = useState<ApiFailure | null>(null)
   const [pending, setPending] = useState(false)
 
@@ -82,6 +84,8 @@ export function LoginPage() {
               type="email"
               autoComplete="username"
               value={email}
+              aria-invalid={hasFieldError(failure, 'email') || undefined}
+              aria-describedby={hasFieldError(failure, 'email') ? fieldErrorId('email') : undefined}
               onChange={(event) => setEmail(event.target.value)}
             />
             <FieldErrorText failure={failure} field="email" />
@@ -94,6 +98,8 @@ export function LoginPage() {
               type="password"
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               value={password}
+              aria-invalid={hasFieldError(failure, 'password') || undefined}
+              aria-describedby={hasFieldError(failure, 'password') ? fieldErrorId('password') : undefined}
               onChange={(event) => setPassword(event.target.value)}
             />
             <FieldErrorText failure={failure} field="password" />
@@ -105,10 +111,13 @@ export function LoginPage() {
           </button>
         </form>
 
-        <p className="login-hint">
-          Демо-учётка стенда: <code>demo@pingboard.local</code> / <code>demo-password</code> — создаётся
-          сидом Api в Development. Регистрация ограничена 10 запросами на адрес, вход — 20.
-        </p>
+        {demoCredentials && (
+          <p className="login-hint">
+            Демо-учётка стенда: <code>{demoCredentials.email}</code> /{' '}
+            <code>{demoCredentials.password}</code> — создаётся сидом Api в Development.
+            Регистрация ограничена 10 запросами на адрес, вход — 20.
+          </p>
+        )}
 
         {/* Ссылка на документацию API: есть только там, где Api её отдаёт (Development). */}
         {apiDocsPath && (

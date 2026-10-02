@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import type { ApiFailure } from '../api/client'
 import type { MonitorDto, MonitorFormValues } from '../api/types'
-import { FieldErrorText } from './FieldErrorText'
+import { FieldErrorText, fieldErrorId, hasFieldError } from './FieldErrorText'
 
 interface MonitorFormProps {
   /** Есть — форма редактирует существующий монитор; нет — создаёт новый. */
@@ -44,6 +44,7 @@ export function MonitorForm({ initial, submitting, failure, onSubmit, onCancel }
     else if (trimmedName.length > NAME_MAX) errors.name = `Имя длиннее ${NAME_MAX} символов.`
 
     if (!isHttpUrl(trimmedUrl)) errors.url = 'Нужен абсолютный http(s)-адрес, например https://example.com'
+    else if (hasUrlCredentials(trimmedUrl)) errors.url = 'Уберите логин и пароль из адреса: они попадут в логи.'
 
     if (!Number.isInteger(seconds) || seconds < INTERVAL_MIN || seconds > INTERVAL_MAX) {
       errors.intervalSeconds = `Интервал — целое число секунд от ${INTERVAL_MIN} до ${INTERVAL_MAX}.`
@@ -66,6 +67,8 @@ export function MonitorForm({ initial, submitting, failure, onSubmit, onCancel }
           value={name}
           maxLength={NAME_MAX}
           placeholder="Мой блог"
+          aria-invalid={hasFieldError(failure, 'name', localErrors.name) || undefined}
+          aria-describedby={hasFieldError(failure, 'name', localErrors.name) ? fieldErrorId('name') : undefined}
           onChange={(event) => setName(event.target.value)}
         />
         <FieldErrorText failure={failure} field="name" local={localErrors.name} />
@@ -78,11 +81,14 @@ export function MonitorForm({ initial, submitting, failure, onSubmit, onCancel }
           value={url}
           maxLength={URL_MAX}
           placeholder="https://example.com"
+          aria-invalid={hasFieldError(failure, 'url', localErrors.url) || undefined}
+          aria-describedby={hasFieldError(failure, 'url', localErrors.url) ? fieldErrorId('url') : undefined}
           onChange={(event) => setUrl(event.target.value)}
         />
         <FieldErrorText failure={failure} field="url" local={localErrors.url} />
         <span className="hint">
           Внутренние адреса (10/8, 192.168/16, localhost) отклоняются: барьер SSRF включён по умолчанию.
+          Логин и пароль в адресе тоже отклоняются — они попали бы в логи проверок.
         </span>
       </div>
 
@@ -94,6 +100,12 @@ export function MonitorForm({ initial, submitting, failure, onSubmit, onCancel }
           min={INTERVAL_MIN}
           max={INTERVAL_MAX}
           value={interval}
+          aria-invalid={hasFieldError(failure, 'intervalSeconds', localErrors.intervalSeconds) || undefined}
+          aria-describedby={
+            hasFieldError(failure, 'intervalSeconds', localErrors.intervalSeconds)
+              ? fieldErrorId('intervalSeconds')
+              : undefined
+          }
           onChange={(event) => setInterval(event.target.value)}
         />
         <FieldErrorText failure={failure} field="intervalSeconds" local={localErrors.intervalSeconds} />
@@ -134,6 +146,16 @@ function isHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value)
     return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/** `https://user:secret@host` — валидный URL, но такие данные утекают в логи и в текст ошибок. */
+function hasUrlCredentials(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return parsed.username.length > 0 || parsed.password.length > 0
   } catch {
     return false
   }

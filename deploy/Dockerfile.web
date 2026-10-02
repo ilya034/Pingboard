@@ -11,6 +11,10 @@ WORKDIR /frontend
 # Раньше адрес был захардкожен как http://localhost:8080/scalar/v1 — на VPS и в k8s он вёл
 # на машину пользователя, а не на стенд. По умолчанию пусто, то есть «безопасное» поведение:
 # передаёт значение только тот, кто собирает стенд в Development (deploy/docker-compose.yml).
+#
+# Тот же признак управляет предзаполнением демо-учётки на экране входа (frontend/src/lib/demo.ts):
+# демо-пользователя создаёт сид Api, а вне Development Api падает на старте с SeedOnStart.
+# Так пароль несуществующей учётки не попадает в форму входа на «проде».
 ARG VITE_API_DOCS_PATH=""
 ENV VITE_API_DOCS_PATH=$VITE_API_DOCS_PATH
 

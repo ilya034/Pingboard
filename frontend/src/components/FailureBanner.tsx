@@ -13,7 +13,12 @@ export function FailureBanner({ failure, onRetry }: { failure: ApiFailure; onRet
       </div>
 
       {onRetry && (
-        <button type="button" className="btn btn-ghost btn-small" onClick={onRetry}>
+        <button
+          type="button"
+          className="btn btn-ghost btn-small"
+          onClick={onRetry}
+          title="Одна попытка: автоматические повторы уже исчерпаны"
+        >
           Повторить
         </button>
       )}

@@ -3,15 +3,16 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 import { App } from './App'
-import { isRetryable } from './api/client'
+import { retryQuery } from './api/query'
 import { AuthProvider } from './hooks/useAuth'
 import './styles.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Повторяем только сеть/5xx: 400 и 401 повторять бессмысленно, а 429 — вредно.
-      retry: (failureCount, error) => isRetryable(error) && failureCount < 2,
+      // Политика повторов — в query.ts: там же видно, что ручная попытка с кнопки
+      // «Повторить» не повторяется автоматически.
+      retry: retryQuery,
       staleTime: 5_000,
       refetchOnWindowFocus: true,
     },

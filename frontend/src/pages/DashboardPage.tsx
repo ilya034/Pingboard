@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toApiFailure, type ApiFailure } from '../api/client'
+import { manualRefetch } from '../api/query'
 import type { MonitorDto, MonitorFormValues } from '../api/types'
 import { FailureBanner } from '../components/FailureBanner'
 import { MonitorForm } from '../components/MonitorForm'
@@ -70,7 +71,18 @@ export function DashboardPage() {
     else createMonitor.mutate(values, options)
   }
 
+  // Какая строка ждёт ответа сервера. Сравниваем по сохранённым `variables`, а не по
+  // «мутация выполняется»: у списка одна мутация на все строки, и без привязки к id
+  // индикатор встал бы сразу во всех строках. Учитываются только действия самой строки:
+  // пока открыта форма редактирования (она рисуется отдельной карточкой выше), строки
+  // остаются рабочими — иначе неудачное сохранение запирало бы свою строку до закрытия формы.
+  const busyId =
+    (updateMonitor.isPending && !formOpen ? updateMonitor.variables?.id : undefined) ??
+    (deleteMonitor.isPending ? deleteMonitor.variables : undefined)
+
   function toggleEnabled(monitor: MonitorDto) {
+    if (busyId === monitor.id) return
+
     setActionError(null)
     updateMonitor.mutate(
       { id: monitor.id, patch: { enabled: !monitor.enabled } },
@@ -79,6 +91,8 @@ export function DashboardPage() {
   }
 
   function remove(monitor: MonitorDto) {
+    if (busyId === monitor.id) return
+
     setActionError(null)
 
     const confirmed = window.confirm(`Удалить монитор «${monitor.name}» вместе с историей проверок?`)
@@ -137,7 +151,10 @@ export function DashboardPage() {
         {monitors.isPending && <p className="muted">Загружаем мониторы…</p>}
 
         {monitors.isError && (
-          <FailureBanner failure={toApiFailure(monitors.error)} onRetry={() => void monitors.refetch()} />
+          <FailureBanner
+            failure={toApiFailure(monitors.error)}
+            onRetry={() => void manualRefetch(() => monitors.refetch())}
+          />
         )}
 
         {monitors.isSuccess && list.length === 0 && (
@@ -188,13 +205,37 @@ export function DashboardPage() {
                         <Link className="btn btn-ghost btn-small" to={`/monitors/${monitor.id}`}>
                           История
                         </Link>
-                        <button type="button" className="btn btn-ghost btn-small" onClick={() => openEdit(monitor)}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-small"
+                          onClick={() => openEdit(monitor)}
+                          disabled={busyId === monitor.id}
+                        >
                           Изменить
                         </button>
-                        <button type="button" className="btn btn-ghost btn-small" onClick={() => toggleEnabled(monitor)}>
-                          {monitor.enabled ? 'Пауза' : 'Включить'}
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-small"
+                          onClick={() => toggleEnabled(monitor)}
+                          disabled={busyId === monitor.id}
+                          title={
+                            busyId === monitor.id
+                              ? 'Запрос отправлен, ждём ответа Api'
+                              : undefined
+                          }
+                        >
+                          {busyId === monitor.id
+                            ? 'Сохраняем…'
+                            : monitor.enabled
+                              ? 'Пауза'
+                              : 'Включить'}
                         </button>
-                        <button type="button" className="btn btn-danger btn-small" onClick={() => remove(monitor)}>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-small"
+                          onClick={() => remove(monitor)}
+                          disabled={busyId === monitor.id}
+                        >
                           Удалить
                         </button>
                       </div>

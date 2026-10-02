@@ -26,16 +26,22 @@ export function readStoredAuth(): StoredAuth | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
 
-    const parsed = JSON.parse(raw) as StoredAuth
-    if (!parsed.accessToken) return null
+    const parsed = JSON.parse(raw) as Partial<StoredAuth>
+    // Тип проверяем, а не доверяем приведению: `{"accessToken": 123}` — валидный JSON,
+    // из которого иначе получился бы заголовок `Bearer 123` и 401 на каждом запросе.
+    if (typeof parsed.accessToken !== 'string' || parsed.accessToken.length === 0) return null
 
     // Просроченный токен не держим: иначе первый же запрос вернёт 401 и экран мигнёт логином.
-    if (parsed.expiresAt && new Date(parsed.expiresAt).getTime() <= Date.now()) {
+    if (typeof parsed.expiresAt === 'string' && new Date(parsed.expiresAt).getTime() <= Date.now()) {
       localStorage.removeItem(STORAGE_KEY)
       return null
     }
 
-    return parsed
+    return {
+      accessToken: parsed.accessToken,
+      email: typeof parsed.email === 'string' ? parsed.email : '',
+      expiresAt: typeof parsed.expiresAt === 'string' ? parsed.expiresAt : '',
+    }
   } catch {
     // Битое значение в localStorage — не повод ронять приложение: считаем, что входа нет.
     return null
@@ -92,13 +98,6 @@ api.interceptors.response.use(
   },
 )
 
-/** Повторять имеет смысл только то, что не является ошибкой входа: сеть, таймаут, 5xx. */
-export function isRetryable(error: unknown): boolean {
-  if (!axios.isAxiosError(error)) return false
-  const status = error.response?.status
-  return status === undefined || status >= 500
-}
-
 export function toApiFailure(error: unknown): ApiFailure {
   if (!axios.isAxiosError(error)) {
     return {
@@ -128,8 +127,10 @@ export function toApiFailure(error: unknown): ApiFailure {
 
   const fieldErrors: Record<string, string> = {}
   for (const [field, messages] of Object.entries(problem?.errors ?? {})) {
-    const first = messages?.[0]
-    if (first) fieldErrors[field] = first
+    // Склеиваем все сообщения поля, а не берём первое: сервер умеет вернуть несколько
+    // причин сразу, и «показали одну из трёх» заставляет пользователя чинить по одной.
+    const text = messages?.filter((message) => message.length > 0).join(' ')
+    if (text) fieldErrors[field] = text
   }
 
   const retryAfter = Number(headers?.['retry-after'])

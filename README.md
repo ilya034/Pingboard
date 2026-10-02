@@ -24,7 +24,7 @@ Uptime-монитор для SRE-курса (мини-UptimeRobot): пользо
 | EF-миграция `InitialCreate` | ✅ |
 | deploy: Dockerfile.api/web, compose, nginx | ✅ есть; пошаговая инструкция — [DEPLOY.md](DEPLOY.md) (образы не собирались: нет доступа к реестру образов) |
 | CI/CD: GitHub Actions → GHCR → VPS по SSH | ✅ есть ([.github/workflows/ci.yml](.github/workflows/ci.yml) + `deploy/docker-compose.registry.yml`, `vps.yml`, `nginx-host.dev.conf`); прогонов на живом runner'е и VPS пока не было — см. DEPLOY §5.9 |
-| CI проверяет и фронт | ✅ ступени `web` (npm ci → tsc → сборка → аудит) и `manifests` (рендер оверлеев + kubeconform) в том же workflow |
+| CI проверяет и фронт | ✅ ступени `web` (npm ci → tsc → eslint → vitest → сборка → проверка прод-бандла на демо-учётку → аудит) и `manifests` (рендер оверлеев + kubeconform) в том же workflow |
 | k8s: манифесты + локальный стенд (k3d) | ✅ есть (`k8s/base`, `k8s/overlays/dev|prod`, `scripts/k3d-up.ps1`); на живом кластере не применялись — см. DEPLOY §5.10 |
 | Тесты | ✅ 90 (32 Domain + 58 Application, включая пробу живости воркера), `dotnet test` / in-process раннер |
 | Проба живости воркера (`--self-check`) | ✅ режим той же сборки: бинарник читает файл-пульс и возвращает 0/1; им пользуются healthcheck compose и `livenessProbe` в k8s |
@@ -228,11 +228,13 @@ npm run dev:sandbox                 # http://localhost:5173
 
 Суффикс `:sandbox` — из-за ограничений этой машины (Vite на Windows зовёт `exec("net use")`, а песочница запрещает `child_process` с pipe). На обычной машине и в Docker это `npm ci && npm run build`. Одной командой всё: `powershell -ExecutionPolicy Bypass -File scripts/build-web.ps1`.
 
+Проверки фронта (те же, что в CI): `npm run lint` (ESLint, включая правила хуков React), `npm run typecheck`, `npm test` (vitest) — или `npm run check` одной командой. В песочнице тесты идут как `npm run test:sandbox` (пул потоков вместо `forks`, см. [SANDBOX.md](SANDBOX.md) §8.2).
+
 Что на экранах:
 
-* **Login** (`/login`) — вход и регистрация; по умолчанию подставлена демо-учётка стенда (`demo@pingboard.local` / `demo-password`), ошибки полей берутся из `ProblemDetails.errors`, а `traceId` показывается в баннере — по нему запрос ищется в JSON-логах Api;
-* **Dashboard** (`/`) — таблица мониторов: статус, uptime 24 ч, полоса доступности (сегменты считает Api), последняя задержка, время проверки; создать/изменить/пауза/удалить; автоопрос каждые 10 с через `refetchInterval`;
-* **Monitor detail** (`/monitors/:id`) — карточки статистики, спарклайн задержек за окно (1/6/24 ч, свой SVG), история проверок с кодами ответа и ошибками, пауза/возобновление.
+* **Login** (`/login`) — вход и регистрация; демо-учётка стенда (`demo@pingboard.local` / `demo-password`) подставляется **только** на Development-стенде: её создаёт сид Api, а вне Development Api с `SeedOnStart` не стартует, поэтому в прод-сборке и поля пустые, и строк пароля в бандле нет; ошибки полей берутся из `ProblemDetails.errors`, а `traceId` показывается в баннере — по нему запрос ищется в JSON-логах Api;
+* **Dashboard** (`/`) — таблица мониторов: статус, uptime 24 ч, полоса доступности (сегменты считает Api), последняя задержка, время проверки; создать/изменить/пауза/удалить (состояние строки обновляется оптимистично и на время запроса блокируется); автоопрос каждые 10 с через `refetchInterval`;
+* **Monitor detail** (`/monitors/:id`) — карточки статистики, спарклайн задержек за окно (1/6/24 ч, свой SVG), история проверок с кодами ответа и ошибками, пауза/возобновление. Uptime за 24 ч берётся из ответа Api; «за окно» считается по загруженным проверкам, и подпись называет фактическое покрытие, потому что Api обрезает историю лимитом (500 записей).
 
 Токен хранится в `localStorage` и подставляется интерсептором axios; 401 (кроме самих `auth/*`) чистит вход и уводит на логин. Клиентская защита маршрутов — удобство, а не безопасность: настоящая проверка на сервере (`RequireAuthorization` + владелец из claim `sub`).
 

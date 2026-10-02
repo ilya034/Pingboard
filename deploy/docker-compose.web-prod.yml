@@ -8,6 +8,10 @@
 #   * окружение Production обязано собрать SPA с пустым значением — иначе в интерфейсе
 #     останется ссылка на маршрут, которого на «проде» нет (404).
 #
+# Здесь же закрывается предзаполнение демо-учётки на экране входа
+# (frontend/src/lib/demo.ts): признак «Development-стенд» — тот же, и без него форма входа
+# на «проде» подставляла бы пароль пользователя, которого на «проде» не существует.
+#
 # Подключение — к prod-набору (DEPLOY §5.5):
 #   docker compose --env-file .env \
 #     -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml -f deploy/docker-compose.web-prod.yml \

@@ -16,10 +16,20 @@ export function formatLatency(ms: number | null | undefined): string {
   return ms === null || ms === undefined ? '—' : `${ms} мс`
 }
 
-/** uptime24h приходит долей 0..1 (или null, если проверок в окне не было). */
+/**
+ * uptime24h приходит долей 0..1 (или null, если проверок в окне не было).
+ *
+ * Округление строго вниз до десятых: в мониторинге «100 %» при 99,96 % — это ложное
+ * «всё хорошо». Единица показывается только при точном равенстве, а всё, что ниже,
+ * округляется к меньшему (99,96 → «99.9 %», 99,94 → «99.9 %»).
+ */
 export function formatUptime(ratio: number | null | undefined): string {
   if (ratio === null || ratio === undefined) return 'нет данных'
-  return `${(ratio * 100).toFixed(ratio >= 0.9995 ? 0 : 1)} %`
+
+  const percent = ratio * 100
+  if (percent >= 100) return '100 %'
+
+  return `${(Math.floor(percent * 10) / 10).toFixed(1)} %`
 }
 
 export function formatDateTime(value: string | null | undefined): string {
@@ -52,6 +62,53 @@ export function formatInterval(seconds: number): string {
 
 export function formatWindow(hours: number): string {
   return hours === 1 ? 'последний час' : `последние ${hours} ч`
+}
+
+/**
+ * Фактический интервал набора проверок: `from` — самая ранняя, `to` — самая поздняя.
+ *
+ * Нужен потому, что окно запроса почти никогда не совпадает с покрытием: Api обрезает
+ * историю лимитом (500 записей по умолчанию), и при интервале 30 с это ~4 часа, а не
+ * запрошенные 24. Подпись обязана называть то, что нарисовано, а не то, что запрошено.
+ */
+export function formatWindowSpan(from: string | null | undefined, to: string | null | undefined): string {
+  if (!from || !to) return ''
+
+  const start = new Date(from).getTime()
+  const end = new Date(to).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return ''
+
+  const minutes = Math.round((end - start) / 60_000)
+  if (minutes < 60) return `${minutes} мин`
+
+  const hours = minutes / 60
+  // Целые часы без дробной части: «24 ч», а не «24.0 ч».
+  const rounded = Math.round(hours * 10) / 10
+  return Number.isInteger(rounded) ? `${rounded} ч` : `${rounded.toFixed(1)} ч`
+}
+
+/** Крайние проверки окна: их времена описывают то, что реально покрыто данными. */
+export function checkWindowSpan(items: { checkedAt: string }[]): { from: string; to: string } | null {
+  if (items.length === 0) return null
+
+  let from = items[0]!.checkedAt
+  let to = items[0]!.checkedAt
+  let fromTicks = new Date(from).getTime()
+  let toTicks = fromTicks
+
+  for (const item of items) {
+    const ticks = new Date(item.checkedAt).getTime()
+    if (ticks < fromTicks) {
+      from = item.checkedAt
+      fromTicks = ticks
+    }
+    if (ticks > toTicks) {
+      to = item.checkedAt
+      toTicks = ticks
+    }
+  }
+
+  return { from, to }
 }
 
 /** Среднее, минимум и максимум задержки по загруженным проверкам (без учёта сбоев без ответа). */

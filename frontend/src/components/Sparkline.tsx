@@ -8,8 +8,12 @@ const PAD = 14
  * Спарклайн задержек на своём SVG (~40 строк вместо recharts, PLAN.md §7).
  * Точки идут по индексу проверки, а не по времени: при равном интервале это то же самое,
  * зато пропуски в истории не сжимают график в непонятную кашу.
+ *
+ * `spanLabel` — фактическое покрытие окна. Api обрезает историю лимитом, поэтому «в окне»
+ * на графике и «в окне» в запросе могут быть разными интервалами: подпись обязана называть
+ * то, что нарисовано.
  */
-export function Sparkline({ items }: { items: MonitorCheckDto[] }) {
+export function Sparkline({ items, spanLabel }: { items: MonitorCheckDto[]; spanLabel?: string | undefined }) {
   const points = [...items].sort(
     (left, right) => new Date(left.checkedAt).getTime() - new Date(right.checkedAt).getTime(),
   )
@@ -50,7 +54,15 @@ export function Sparkline({ items }: { items: MonitorCheckDto[] }) {
 
   return (
     <figure className="spark">
-      <svg className="spark-svg" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label="Задержка проверок">
+      <svg
+        className="spark-svg"
+        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        role="img"
+        aria-label={
+          `Задержка проверок: ${latencies.length} проверок с ответом, сбоев ${failures.length}` +
+          (spanLabel ? `, ${spanLabel}` : '')
+        }
+      >
         {segments
           .filter((segment) => segment.includes(' '))
           .map((segment) => (
@@ -71,7 +83,8 @@ export function Sparkline({ items }: { items: MonitorCheckDto[] }) {
       </svg>
 
       <figcaption>
-        Задержка, мс · максимум в окне {max} · сбоев {failures.length} · проверок с ответом {latencies.length}
+        Задержка, мс · максимум {max} · сбоев {failures.length} · проверок с ответом {latencies.length}
+        {spanLabel ? ` · ${spanLabel}` : ''}
       </figcaption>
     </figure>
   )
