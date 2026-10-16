@@ -16,8 +16,7 @@ using Pingboard.Infrastructure.Security.Options;
 namespace Pingboard.Infrastructure;
 
 /// <summary>
-///     Единственный публичный API Infrastructure-слоя: Api и Worker вызывают только его
-///     и не знают ни про EF Core, ни про Npgsql.
+///     Методы расширения для регистрации сервисов инфраструктурного слоя в DI-контейнере.
 /// </summary>
 public static class DependencyInjection
 {
@@ -25,7 +24,7 @@ public static class DependencyInjection
     {
         var connectionString = configuration.GetConnectionString("Default")
                                ?? throw new InvalidOperationException(
-                                   "ConnectionStrings__Default is not set; configuration is only from environment (factor III)." );
+                                   "ConnectionStrings__Default is not set in configuration.");
 
         services.AddDbContext<UptimeDbContext>(options =>
             options.UseNpgsql(connectionString, npgsql =>

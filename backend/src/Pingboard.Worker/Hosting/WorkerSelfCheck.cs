@@ -5,44 +5,30 @@ using Pingboard.Worker.Hosting.Configuration;
 namespace Pingboard.Worker.Hosting;
 
 /// <summary>
-///     Проба живости воркера (фактор IX): режим «проверить пульс и выйти», который вызывает
-///     внешний наблюдатель — <c>docker healthcheck</c> или <c>livenessProbe</c> в k8s.
-///
-///     Зачем отдельный режим, а не shell-однострочник со <c>date</c> и <c>stat</c>:
-///     у воркера нет HTTP-порта, поэтому единственный признак жизни — свежесть файла-пульса,
-///     который пишет цикл проверок. Считать её можно снаружи (нужны GNU coreutils и sh
-///     в образе) или изнутри — этим и занимается режим. Второй вариант не зависит от состава
-///     образа: он работает и в distroless/chiseled, и на Windows-контейнере.
-///
-///     Коды возврата: 0 — пульс свежий, 1 — пульс старый, файла нет или он нечитаем.
-///     Любой нештатный случай — это «нездоров», а не «не знаю»: для проб молчание опаснее
-///     ложного перезапуска.
+/// Режим проверки работоспособности воркера (healthcheck) для внешних систем мониторинга (Docker healthcheck, Kubernetes probes).
+/// Проверяет наличие и актуальность файла пульса (heartbeat), обновляемого фоновым циклом выполнения проверок.
+/// Возвращает 0, если пульс актуален, или 1 при его отсутствии, повреждении или устаревании.
 /// </summary>
 public static class WorkerSelfCheck
 {
-    /// <summary>Имя режима в командной строке: <c>dotnet Pingboard.Worker.dll --self-check</c>.</summary>
+    /// <summary>Имя флага командной строки для запуска в режиме проверки: <c>--self-check</c>.</summary>
     public const string FlagName = "--self-check";
 
-    /// <summary>Ключ конфигурации, переопределяющий порог свежести: <c>Worker__HeartbeatMaxAgeSeconds</c>.</summary>
+    /// <summary>Ключ конфигурации, переопределяющий допустимый возраст пульса: <c>Worker:HeartbeatMaxAgeSeconds</c>.</summary>
     public const string MaxAgeSecondsKey = "Worker:HeartbeatMaxAgeSeconds";
 
     /// <summary>
-    ///     Порог по умолчанию. Должен совпадать с периодом healthcheck в compose/k8s:
-    ///     воркер тикает каждые 5 с (Worker__TickSeconds), 120 с — это 24 пропущенных итерации,
-    ///     то есть заведомо «повис», а не «чуть замешкался».
+    /// Допустимый возраст пульса по умолчанию (120 секунд).
     /// </summary>
     public const int DefaultMaxAgeSeconds = 120;
 
     /// <summary>
-    ///     Читает аргументы и, если запрошен режим проверки, возвращает код выхода.
-    ///     <c>null</c> означает «режим не запрошен, запускай обычный цикл».
-    ///
-    ///     <paramref name="now" /> передаётся явно, чтобы тесты не зависели от системных часов
-    ///     (в решении для этого принят <c>TimeProvider</c>, но здесь вызов ровно один, и
-    ///     параметр делает функцию чистой). <paramref name="configuration" /> можно передать
-    ///     готовую — тогда JSON-файлы и переменные окружения не читаются; так проверяются
-    ///     порог и путь из конфигурации.
+    /// Выполняет проверку аргументов и запуск процедуры самопроверки, если передан соответствующий флаг.
     /// </summary>
+    /// <param name="args">Аргументы командной строки.</param>
+    /// <param name="now">Текущее время.</param>
+    /// <param name="configuration">Экземпляр конфигурации (опционально, для тестирования).</param>
+    /// <returns>Код завершения процесса (0 или 1), либо null, если запуск запрошен в стандартном режиме воркера.</returns>
     public static int? Run(string[] args, DateTimeOffset now, IConfiguration? configuration = null)
     {
         var selfCheck = args
@@ -51,9 +37,7 @@ public static class WorkerSelfCheck
 
         if (selfCheck.value is null) return null;
 
-        // Как и при обычном старте, конфигурация собирается из appsettings.json (если они
-        // лежат рядом с бинарником) и переменных окружения — env последнее слово (фактор III).
-        // Прочие аргументы командной строки не разбираются: их в воркере нет.
+        // Конфигурация собирается из appsettings.json и переменных окружения.
         configuration ??= BuildConfiguration();
 
         var options = ResolveOptions(configuration, args);
@@ -111,9 +95,8 @@ public static class WorkerSelfCheck
     }
 
     /// <summary>
-    ///     Проверяет свежесть пульса. Возраст считается по отметке ВНУТРИ файла, а не по
-    ///     времени изменения файла: так проверка не зависит от точности ФС и работает
-    ///     одинаково в контейнере, на смонтированном томе и на Windows.
+    /// Проверяет актуальность пульса по метке времени внутри файла.
+    /// Не зависит от точности времени изменения файла в файловой системе.
     /// </summary>
     public static SelfCheckStatus Inspect(string path, DateTimeOffset now, TimeSpan maxAge)
     {

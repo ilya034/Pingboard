@@ -1,12 +1,13 @@
 namespace Pingboard.Application.Abstractions;
 
 /// <summary>
-///     Готовность зависимости: доступна ли БД (readiness-проба).
-///     Портом закрывается правило «в Api нет ни одного типа EF Core» (§2):
-///     endpoint спрашивает слой Infrastructure, а не <c>UptimeDbContext</c> напрямую.
+/// Абстракция проверки доступности базы данных для зонда готовности к обработке трафика (readiness probe).
+/// Изолирует API от деталей реализации доступа к данным.
 /// </summary>
 public interface IDatabaseHealthProbe
 {
-    /// <summary>true — соединение с БД устанавливается (SELECT 1). Исключения наружу не летят.</summary>
+    /// <summary>
+    /// Проверяет возможность установки соединения с базой данных (SELECT 1).
+    /// </summary>
     Task<bool> CanConnectAsync(CancellationToken ct);
 }

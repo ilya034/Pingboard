@@ -9,11 +9,8 @@ using Pingboard.Infrastructure.Security.Options;
 namespace Pingboard.Application.Tests.Auth;
 
 /// <summary>
-///     Проверяет самое хрупкое место JWT: что токен, выписанный <see cref="JwtTokenService" />,
-///     принимается ровно теми параметрами, которыми его проверяет Api, и что владелец
-///     (claim sub) при этом доходит до кода без искажений.
-///     Раньше это не проверялось вообще, а расхождение здесь означает либо всех с 401,
-///     либо (хуже) приём токенов, подписанных чужим ключом.
+/// Тесты жизненного цикла JWT: проверка согласованности параметров выпуска (<see cref="JwtTokenService"/>)
+/// и валидации токенов с извлечением утверждения sub.
 /// </summary>
 public sealed class JwtTokenRoundTripTests
 {

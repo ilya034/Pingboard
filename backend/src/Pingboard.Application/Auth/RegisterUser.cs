@@ -8,9 +8,7 @@ using Pingboard.Domain.Entities;
 namespace Pingboard.Application.Auth;
 
 /// <summary>
-///     Регистрация пользователя: создать аккаунт и сразу выдать access-токен.
-///     Владельцем запросов пользователь становится через claim sub этого токена —
-///     никакого «пользователя по умолчанию» в сценарии нет.
+///     Сценарий регистрации пользователя: создание учётной записи и выпуск первичного access-токена.
 /// </summary>
 public sealed class RegisterUser(
     IUserRepository users,
@@ -40,9 +38,7 @@ public sealed class RegisterUser(
 
         logger.LogInformation("User registered {UserId}", user.Id);
 
-        // Срок жизни токена берётся у выдачи: сценарий не угадывает его по своим часам.
-        // Гонка двух регистраций на один email ловится на UNIQUE-индексе ux_users_email
-        // и транслируется в 400 по полю email (ExceptionStatusMapper).
+        // Конфликты параллельной регистрации обрабатываются ограничением уникальности таблицы БД.
         var token = tokenService.Issue(user.Id);
 
         return new AuthTokenDto(token.AccessToken, token.ExpiresAt);

@@ -4,14 +4,8 @@ using Microsoft.Extensions.Configuration;
 namespace Pingboard.Worker.Hosting.Configuration;
 
 /// <summary>
-///     Мини-провайдер конфигурации из JSON-файла.
-///     ПОЧЕМУ СВОЙ: пакет Microsoft.Extensions.Configuration.Json отсутствует в оффлайн-фиде
-///     (см. Directory.Packages.props). Провайдер читает файл один раз на старте и раскладывает
-///     вложенные объекты в ключи вида <c>Worker:TickSeconds</c> — ровно то, что ожидает
-///     биндинг Options.
-///     Основной источник конфигурации в проде — переменные окружения (фактор III);
-///     appsettings — удобство локального запуска. Когда появится nuget.org, этот файл
-///     заменяется на штатный <c>AddJsonFile</c>.
+/// Источник конфигурации для чтения параметров из JSON-файлов.
+/// Преобразует иерархическую структуру JSON в плоский набор ключей (например, <c>Worker:TickSeconds</c>) для связывания с Options.
 /// </summary>
 public sealed class JsonFileConfigurationSource(string path) : IConfigurationSource
 {

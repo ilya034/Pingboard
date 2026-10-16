@@ -10,22 +10,13 @@ using Pingboard.Worker.Hosting.Logging;
 namespace Pingboard.Worker.Hosting;
 
 /// <summary>
-///     Минимальный хост для worker-процесса.
-///     ПОЧЕМУ НЕ Microsoft.Extensions.Hosting:
-///     пакет Microsoft.Extensions.Hosting (вместе с Microsoft.Extensions.Logging.Console и
-///     Microsoft.Extensions.Configuration.Json) недоступен в оффлайн-фиде этой машины
-///     (см. Directory.Packages.props «отложено»). Пакет Microsoft.Extensions.Hosting.Abstractions
-///     доступен и даёт IHostedService/BackgroundService — на них и собран цикл пингов.
-///     ЗАМЕНА, когда появится доступ к nuget.org: удалить файл и вернуть
-///     Sdk="Microsoft.NET.Sdk.Worker" + Host.CreateApplicationBuilder(args).
-///     DueCheckWorker и вся остальная логика при этом не меняются.
+/// Легковесный хост для запуска и управления жизненным циклом фоновых служб (IHostedService).
+/// Выполняет инициализацию конфигурации, DI-контейнера, логирования и обработку сигналов завершения процесса.
 /// </summary>
 public sealed class WorkerHost : IAsyncDisposable
 {
     /// <summary>
-    ///     Бюджет на остановку — тот же, что у Api (HostOptions.ShutdownTimeout): SIGTERM-контракт
-    ///     (фактор IX) должен быть явным, а не «сколько получится». По истечении бюджета
-    ///     доборы останавливаются принудительно, и в логе остаётся предупреждение.
+    /// Предельное время ожидания завершения фоновых служб при получении сигнала остановки (graceful shutdown).
     /// </summary>
     public static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(10);
 
@@ -57,19 +48,15 @@ public sealed class WorkerHost : IAsyncDisposable
     public static WorkerHost Build(string[] args, Action<IServiceCollection, IConfiguration> configure,
         params Type[] hostedServiceTypes)
     {
-        _ = args; // аргументы командной строки не парсим: конфигурация приходит из env (фактор III)
+        _ = args;
         var environmentName = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
                               ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
                               ?? "Production";
 
-        // SetBasePath/AddJsonFile требуют пакетов Microsoft.Extensions.Configuration.Json и
-        // FileProviders.Physical (нет в оффлайн-фиде) — используем свой мини-провайдер и
-        // пути к appsettings собираем сами.
         var basePath = AppContext.BaseDirectory;
         var configuration = new ConfigurationBuilder()
             .AddJsonFileIfExists(Path.Combine(basePath, "appsettings.json"))
             .AddJsonFileIfExists(Path.Combine(basePath, $"appsettings.{environmentName}.json"))
-            // Переменные окружения — последнее слово: конфигурация из env (фактор III).
             .AddProcessEnvironmentVariables()
             .Build();
 
@@ -81,7 +68,6 @@ public sealed class WorkerHost : IAsyncDisposable
         services.AddLogging(logging =>
         {
             logging.ClearProviders();
-            // JSON в stdout, никаких файлов — логи собирает платформа (фактор XI).
             ApplyLogLevels(logging, configuration);
             logging.AddProvider(new JsonConsoleLoggerProvider());
         });
@@ -157,12 +143,7 @@ public sealed class WorkerHost : IAsyncDisposable
     }
 
     /// <summary>
-    ///     Применяет секцию <c>Logging:LogLevel</c> (appsettings + env Logging__LogLevel__Default).
-    ///     Штатный хост делает это через AddConfiguration(GetSection("Logging")), но пакета
-    ///     Microsoft.Extensions.Logging.Configuration в оффлайн-фиде нет, поэтому разбираем
-    ///     секцию сами. Без этого порог из конфигурации игнорировался бы: например,
-    ///     "Microsoft.EntityFrameworkCore.Database.Command": "Warning" не работал —
-    ///     в stdout попадал полный текст SQL каждой проверки.
+    /// Применяет настройки уровней логирования из секции Logging:LogLevel (Default и отдельные категории).
     /// </summary>
     private static void ApplyLogLevels(ILoggingBuilder logging, IConfiguration configuration)
     {
@@ -189,7 +170,7 @@ public sealed class WorkerHost : IAsyncDisposable
             context =>
             {
                 context.Cancel = true;
-                _logger.LogInformation("Received SIGTERM: completing the current iteration (factor IX)");
+                _logger.LogInformation("Received SIGTERM: completing the current iteration");
                 _stopping.Cancel();
             });
 

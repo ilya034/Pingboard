@@ -4,9 +4,8 @@ using Pingboard.Domain.Entities;
 namespace Pingboard.Application.Tests.Fakes;
 
 /// <summary>
-///     Фейк порта мониторов: in-memory список плюс копия «планировщика» так, как его
-///     реализует Infrastructure.MonitorRepository.ListDueAsync — это и есть контракт порта,
-///     который обязана соблюдать любая реализация.
+/// Тестовая in-memory реализация репозитория мониторов (<see cref="IMonitorRepository"/>).
+/// Воспроизводит логику планирования проверок аналогично инфраструктурному репозиторию.
 /// </summary>
 public sealed class FakeMonitorRepository : IMonitorRepository
 {

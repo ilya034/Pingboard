@@ -4,9 +4,8 @@ using Pingboard.Domain.Entities;
 namespace Pingboard.Application.Tests.Fakes;
 
 /// <summary>
-///     Фейк истории проверок: повторяет контракт ICheckRepository без БД.
-///     Лимиты считаются «на монитор» — ровно как в SQL-версии (ROW_NUMBER по группам),
-///     иначе тесты дашборда проходили бы на другом поведении, чем в проде.
+/// Тестовая in-memory реализация репозитория проверок (<see cref="ICheckRepository"/>).
+/// Воспроизводит выборку истории с группировкой по мониторам и расчет показателей доступности.
 /// </summary>
 public sealed class FakeCheckRepository : ICheckRepository
 {

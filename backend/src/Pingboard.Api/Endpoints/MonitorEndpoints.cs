@@ -4,9 +4,8 @@ using Pingboard.Application.Monitors.UseCases;
 namespace Pingboard.Api.Endpoints;
 
 /// <summary>
-///     Endpoints тонкие: разобрали вход → вызвали сценарий → вернули DTO/статус.
-///     Вся группа требует access-токен: владелец монитора берётся из claim sub,
-///     «анонимного» владельца здесь быть не может.
+/// Регистрация конечных точек управления мониторами и получения истории их проверок.
+/// Все маршруты группы требуют аутентификации через JWT Bearer токен.
 /// </summary>
 public static class MonitorEndpoints
 {

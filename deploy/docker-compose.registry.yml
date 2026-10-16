@@ -17,8 +17,7 @@ services:
     image: ${IMAGE:?IMAGE не задан (ghcr.io/<owner>/pingboard-api)}:${IMAGE_TAG:?IMAGE_TAG не задан (sha-<commit> или semver)}
 
   worker:
-    # Тот же образ и тот же тег, что у api: три команды одного релиза (фактор VIII).
-    # Команду не переопределяем — она приходит из базового файла.
+    # Тот же образ и тот же тег, что у api: команда запуска задаётся в базовом файле.
     build: !reset null
     image: ${IMAGE:?IMAGE не задан (ghcr.io/<owner>/pingboard-api)}:${IMAGE_TAG:?IMAGE_TAG не задан (sha-<commit> или semver)}
 

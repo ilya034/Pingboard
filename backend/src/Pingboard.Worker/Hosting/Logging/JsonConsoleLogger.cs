@@ -4,8 +4,8 @@ using Microsoft.Extensions.Logging;
 namespace Pingboard.Worker.Hosting.Logging;
 
 /// <summary>
-///     Одна JSON-строка на событие в stdout (фактор XI). Имена полей намеренно совпадают
-///     со схемой <c>AddJsonConsole</c> из Api: логи обоих процессов разбирает один пайплайн.
+/// Логгер с выводом структурированных событий в формате JSON в стандартный поток вывода (stdout).
+/// Формат полей согласуется со схемой AddJsonConsole веб-приложения.
 /// </summary>
 internal sealed class JsonConsoleLogger(string category, Lock gate) : ILogger
 {

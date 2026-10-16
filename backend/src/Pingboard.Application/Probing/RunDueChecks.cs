@@ -9,8 +9,8 @@ using Pingboard.Domain.Entities;
 namespace Pingboard.Application.Probing;
 
 /// <summary>
-///     Сценарий воркера: найти «просроченные» мониторы, проверить их и записать результаты.
-///     Воркер не знает ни про HttpClient, ни про EF Core — только про порты.
+///     Сценарий периодического опроса: находит мониторы с наступившим временем проверки,
+///     параллельно опрашивает их целевые URL и сохраняет результаты в базу данных.
 /// </summary>
 public sealed class RunDueChecks(
     IMonitorRepository monitors,

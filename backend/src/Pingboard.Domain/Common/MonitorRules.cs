@@ -1,8 +1,7 @@
 namespace Pingboard.Domain.Common;
 
 /// <summary>
-///     Доменные правила, описывающие допустимые значения, в одном месте:
-///     и сущности, и валидаторы Application ссылаются на эти константы.
+///     Константы и правила валидации параметров монитора.
 /// </summary>
 public static class MonitorRules
 {

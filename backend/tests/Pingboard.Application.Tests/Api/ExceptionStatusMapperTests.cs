@@ -8,9 +8,7 @@ using Pingboard.Domain;
 namespace Pingboard.Application.Tests.Api;
 
 /// <summary>
-///     Маппинг исключений в HTTP-статусы — это то, на что опирается фронт и алерты.
-///     Ошибки, замапленные не туда, дороже всего: битый JSON превращался в «алертный» 500,
-///     гонка регистраций — в 503 «база не отвечает», а любая SQL-ошибка пряталась за тем же 503.
+/// Тесты сопоставления исключений предметной области и инфраструктуры с HTTP-статусами (<see cref="ExceptionStatusMapper"/>).
 /// </summary>
 public sealed class ExceptionStatusMapperTests
 {

@@ -36,6 +36,12 @@ spec:
             type: PathPrefix
             value: /api
         - path:
+            type: PathPrefix
+            value: /scalar
+        - path:
+            type: PathPrefix
+            value: /openapi
+        - path:
             type: Exact
             value: /healthz
         - path:

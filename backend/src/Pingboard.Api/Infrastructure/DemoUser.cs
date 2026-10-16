@@ -1,13 +1,11 @@
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     Учётные данные демо-пользователя, которого создаёт сид на старте (SeedOnStart).
-///     Нужны, чтобы после включения JWT (M4) было чем войти в свежеподнятый стенд:
-///     POST /api/auth/login с этими email/паролем → access-токен.
+/// Учётные данные демонстрационного пользователя для локальной разработки (SeedOnStart).
 /// </summary>
 public static class DemoUser
 {
-    /// <summary>Стабильный GUID: связывает сид, appsettings и .env.example.</summary>
+    /// <summary>Стабильный идентификатор демонстрационного пользователя.</summary>
     public static readonly Guid Id = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     public const string Email = "demo@pingboard.local";

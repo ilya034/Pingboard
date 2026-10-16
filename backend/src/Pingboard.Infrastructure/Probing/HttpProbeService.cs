@@ -8,11 +8,9 @@ using Pingboard.Infrastructure.Probing.Options;
 namespace Pingboard.Infrastructure.Probing;
 
 /// <summary>
-///     HTTP-проверщик. Работает через IHttpClientFactory: сокеты переиспользуются,
-///     таймауты не «залипают» — правильная работа с исходящими соединениями.
-///     Адрес задаёт пользователь, поэтому соединение идёт через барьер <see cref="ProbeTargetGuard" />:
-///     только публичные адреса, внутренние отклоняются с внятной ошибкой (снимается настройкой
-///     <c>Probe__AllowPrivateNetworks=true</c> на доверенном стенде).
+///     Сервис выполнения HTTP-проверок доступности целевых URL.
+///     Использует пул соединений <see cref="IHttpClientFactory" />, валидацию сетевых адресов
+///     для защиты от SSRF (<see cref="ProbeTargetGuard" />) и поддержку фолбэка с HEAD на GET.
 /// </summary>
 public sealed class HttpProbeService(
     IHttpClientFactory httpClientFactory,

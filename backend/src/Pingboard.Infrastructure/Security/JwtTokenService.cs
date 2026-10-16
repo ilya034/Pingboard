@@ -9,9 +9,8 @@ using Pingboard.Infrastructure.Security.Options;
 namespace Pingboard.Infrastructure.Security;
 
 /// <summary>
-///     Выдаёт access-токен (HS256). Серверных сессий нет — процесс stateless (фактор VI).
-///     Срок жизни возвращается вместе с токеном: <c>expiresAt</c> в ответе — это момент
-///     истечения, а не момент выдачи (иначе фронт считает токен протухшим сразу).
+/// Сервис выпуска JWT access-токенов (HS256) для аутентифицированных пользователей.
+/// Возвращает подписанный токен и абсолютное время окончания срока его действия.
 /// </summary>
 public sealed class JwtTokenService(IOptions<JwtOptions> options, TimeProvider timeProvider) : ITokenService
 {

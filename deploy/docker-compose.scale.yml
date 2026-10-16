@@ -1,4 +1,4 @@
-# deploy/docker-compose.scale.yml — надстройка «реплики Api» для демонстрации фактора VIII.
+# deploy/docker-compose.scale.yml — конфигурация для запуска нескольких реплик Api.
 #
 # Зачем отдельный файл. В базовом docker-compose.yml у api есть фиксированный маппинг
 # "${API_BIND:-0.0.0.0:8080}:8080". Публикация фиксированного хост-порта несовместима с репликами:
@@ -6,7 +6,7 @@
 # `restart: unless-stopped` уйдёт в цикл перезапусков). Поэтому чистый запуск `--scale api=2`
 # требует сначала снять публикацию — это и делает `!reset []`.
 #
-# Запуск (из корня репозитория, `--env-file` обязателен — см. §1):
+# Команда запуска из корня репозитория:
 #   docker compose --env-file .env \
 #     -f deploy/docker-compose.yml -f deploy/docker-compose.scale.yml \
 #     --profile web up -d --scale api=2

@@ -5,9 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     Ответы схемы аутентификации: без этого 401/403 от JwtBearer приходят с пустым телом,
-///     а весь остальной API отвечает RFC 7807 ProblemDetails. Единый формат ошибки —
-///     часть SRE-обвязки из §10, и клиенту не приходится разбирать два разных.
+/// Обработчик событий схемы аутентификации JwtBearer.
+/// Формирует ответы для статусов 401 Unauthorized и 403 Forbidden в стандартизированном формате RFC 7807 (ProblemDetails).
 /// </summary>
 internal static class JwtBearerViewEvents
 {

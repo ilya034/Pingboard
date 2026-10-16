@@ -6,11 +6,8 @@ using Pingboard.Infrastructure.Repositories;
 namespace Pingboard.Application.Tests.Infrastructure;
 
 /// <summary>
-///     Контракты запросов, которые видит только Postgres: планировщик воркера и лимиты дашборда.
-///     На этой машине нет ни Docker, ни работающего Postgres, поэтому проверяется сам SQL
-///     (<c>ToQueryString</c>): это ловит ровно те ошибки, которые иначе всплыли бы только
-///     на живом стенде, — NULLS LAST в ORDER BY, «top N на группу», N+1 в uptime и
-///     расхождение имени UNIQUE-индекса с тем, что ждёт маппер ошибок.
+/// Тесты формирования SQL-запросов и контрактов схемы базы данных через ToQueryString.
+/// Проверяет корректность сортировки COALESCE в планировщике, оконные функции группировки истории и соответствие имён индексов.
 /// </summary>
 public sealed class DatabaseContractTests
 {

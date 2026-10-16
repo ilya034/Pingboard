@@ -6,19 +6,16 @@ using Pingboard.Domain;
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     Исключение слоя → HTTP-статус, заголовок и (при наличии) словарь ошибок по полям.
-///     Единственное место, где принимается решение о коде ответа и для исключений
-///     из сценариев, и для ответов схемы аутентификации.
+/// Сопоставляет исключения приложения и базы данных с соответствующими HTTP-статусами и структурированными ошибками.
+/// Служит единой точкой трансляции ошибок в ответы API.
 /// </summary>
 internal static class ExceptionStatusMapper
 {
-    /// <summary>Насколько глубоко искать первопричину: EF Core заворачивает NpgsqlException в своё.</summary>
+    /// <summary>Максимальная глубина обхода InnerException для поиска первопричины сбоя.</summary>
     private const int MaxInnerDepth = 8;
 
     /// <summary>
-    ///     Имя UNIQUE-индекса <c>users.email</c> из <c>UserConfiguration</c> (Infrastructure):
-    ///     по нему отличаем гонку регистраций от прочих нарушений уникальности.
-    ///     Совпадение с моделью EF Core проверяет тест <c>DatabaseContractTests</c>.
+    /// Имя уникального индекса электронной почты пользователей (ux_users_email) для выявления конфликтов при параллельной регистрации.
     /// </summary>
     internal const string UsersEmailIndex = "ux_users_email";
 
@@ -32,8 +29,7 @@ internal static class ExceptionStatusMapper
                 "One or more fields are invalid.",
                 Errors: validation.Errors),
 
-            // Ошибка входных данных домена. Поле берётся из отдельного свойства, поэтому
-            // в разбивке оно одно: раньше ключом был «domain», а в сообщении дублировалось «Email: …».
+            // Ошибка валидации бизнес-правил: поле ошибки определяется свойством Field (по умолчанию "domain").
             DomainValidationException domain => new MappedError(
                 StatusCodes.Status400BadRequest,
                 "Business rule violated.",
@@ -89,9 +85,7 @@ internal static class ExceptionStatusMapper
                 "Request cancelled by client.",
                 "Client disconnected before the response was sent."),
 
-            // Недоступная БД — это не «внутренняя ошибка сервиса», а состояние backing service
-            // (фактор IV). 503 честнее 500: он говорит «я жив, но зависимость недоступна»,
-            // и согласуется с /readyz, который в этой ситуации тоже отвечает 503.
+            // Недоступность БД транслируется в 503 Service Unavailable, согласуясь с пробой готовности /readyz.
             _ when IsBackingServiceUnavailable(exception) => new MappedError(
                 StatusCodes.Status503ServiceUnavailable,
                 "Service temporarily unavailable: the database is unresponsive.",

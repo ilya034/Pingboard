@@ -1,13 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <!--
-      ВТОРОЙ PROCESS TYPE (фактор VIII): тот же код, другая команда запуска.
-  
-      Sdk="Microsoft.NET.Sdk", а не Microsoft.NET.Sdk.Worker: Worker-SDK требует пакет
-      Microsoft.Extensions.Hosting, которого нет в оффлайн-фиде этой машины.
-      Хост собирается вручную на Microsoft.Extensions.Hosting.Abstractions
-      (см. Hosting/WorkerHost.cs) — там же инструкция, как вернуть штатный Worker SDK.
-    -->
+    <!-- Фоновый воркер опроса мониторов. -->
     <PropertyGroup>
         <RootNamespace>Pingboard.Worker</RootNamespace>
         <AssemblyName>Pingboard.Worker</AssemblyName>

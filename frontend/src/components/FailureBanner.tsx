@@ -1,8 +1,7 @@
 import type { ApiFailure } from '../api/client'
 
 /**
- * Баннер ошибки: сообщение из ProblemDetails + traceId. traceId показываем не «для красоты» —
- * по нему запрос ищется в JSON-логах Api (фактор XI), это часть SRE-обвязки проекта.
+ * Баннер ошибки API: отображает статус, текст ошибки из ProblemDetails и traceId для диагностики.
  */
 export function FailureBanner({ failure, onRetry }: { failure: ApiFailure; onRetry?: () => void }) {
   return (

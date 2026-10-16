@@ -1,14 +1,7 @@
 <Project>
 
-  <!-- Центральные версии NuGet: одна версия пакета на всё решение (фактор II).
-       В .csproj версии НЕ указываются — только <PackageReference Include="..." />.
-
-       ВАЖНО про версии: они подобраны под то, что реально доступно в restore-кэше
-       этой машины. Пакеты помечены как "отложено" — их нет в кэше, добавить,
-       когда появится доступ к nuget.org (см. §2):
-         - FluentValidation        (валидация сценариев)
-         - BCrypt.Net-Next         (хеширование паролей)
-         - prometheus-net.AspNetCore (/metrics) -->
+  <!-- Централизованное управление версиями пакетов NuGet (Central Package Management).
+       В файлах .csproj версии пакетов не указываются. -->
 
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>

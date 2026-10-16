@@ -3,7 +3,9 @@ using Microsoft.Extensions.Configuration;
 
 namespace Pingboard.Worker.Hosting.Configuration;
 
-/// <summary>Читает JSON-файл и раскладывает его во плоские ключи <c>Section:Key</c>.</summary>
+/// <summary>
+/// Провайдер конфигурации для загрузки параметров из JSON-файла и их преобразования в плоскую структуру ключей.
+/// </summary>
 public sealed class JsonFileConfigurationProvider(string path) : ConfigurationProvider
 {
     public string Path { get; } = path;
@@ -67,8 +69,7 @@ public sealed class JsonFileConfigurationProvider(string path) : ConfigurationPr
                 break;
 
             default:
-                // Корень-скаляр («config.json» со строкой внутри) — не конфигурация:
-                // раньше здесь был NullReferenceException на prefix, потому что ключа нет.
+                // Скалярное значение сохраняется только при наличии префикса ключа.
                 if (prefix is not null) data[prefix] = element.ToString();
                 break;
         }

@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pingboard-migrate
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/name: pingboard-migrate
+    app.kubernetes.io/part-of: pingboard
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pingboard-migrate
+        app.kubernetes.io/part-of: pingboard
+    spec:
+      restartPolicy: OnFailure
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:18-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - "sh"
+            - "-c"
+            - 'until pg_isready -h postgres -p 5432 -U pingboard; do echo "Waiting for postgres..."; sleep 2; done'
+      containers:
+        - name: migrate
+          image: pingboard-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["dotnet", "Pingboard.Api.dll", "--migrate"]
+          envFrom:
+            - configMapRef:
+                name: pingboard-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pingboard-secrets
+                  key: POSTGRES_PASSWORD
+            - name: ConnectionStrings__Default
+              valueFrom:
+                secretKeyRef:
+                  name: pingboard-secrets
+                  key: ConnectionStrings__Default
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi

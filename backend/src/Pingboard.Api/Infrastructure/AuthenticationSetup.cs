@@ -6,8 +6,8 @@ using Pingboard.Infrastructure.Security.Options;
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     JWT Bearer включается в M4: маршруты мониторов требуют access-токен,
-///     владелец берётся из claim <c>sub</c> (JwtUserIdProvider).
+/// Настройка схемы аутентификации JWT Bearer и авторизации пользователей.
+/// Конфигурирует параметры валидации токенов, прямое чтение claim sub и единый формат ошибок.
 /// </summary>
 public static class AuthenticationSetup
 {

@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Собирает решение Pingboard и запускает его тесты.
 
@@ -136,7 +136,7 @@ function Invoke-TestsInProcess {
     return (Invoke-Native { dotnet run --project backend/scripts/TestRunner/Pingboard.TestRunner.csproj @nodeArgs })
 }
 
-# --- Гейт: код должен компилироваться (см. §1 в DESCRIPTION) ---
+# --- Проверка компиляции решения перед запуском тестов ---
 Write-Host '== Сборка решения' -ForegroundColor Cyan
 $buildExitCode = $null
 try {

@@ -6,7 +6,9 @@ using Pingboard.Domain.Entities;
 
 namespace Pingboard.Application.Monitors.UseCases;
 
-/// <summary>Список мониторов владельца с uptime и полосой доступности за окно.</summary>
+/// <summary>
+///     Сценарий получения списка мониторов текущего пользователя с агрегированными показателями доступности.
+/// </summary>
 public sealed class ListMonitors(
     IMonitorRepository monitors,
     ICheckRepository checks,
@@ -25,9 +27,8 @@ public sealed class ListMonitors(
 
         var ids = owned.Select(m => m.Id).ToArray();
 
-        // Три запроса на весь дашборд независимо от числа мониторов: история, агрегат uptime
-        // и плотность по сегментам полосы. Раньше здесь было 2N+1 обращений (UptimeRatioAsync
-        // в цикле делает два CountAsync).
+        // Батч-запросы для предотвращения проблемы N+1: загрузка истории, агрегированного uptime
+        // и распределения доступности по сегментам временного окна.
         var history = await checks.HistoryForManyAsync(ids, from, now, cfg.DashboardHistoryPerMonitor, ct);
         var uptimes = await checks.UptimeRatioForManyAsync(ids, from, now, ct);
         var buckets = await checks.UptimeBucketsForManyAsync(ids, from, now, cfg.UptimeBarSegments, ct);

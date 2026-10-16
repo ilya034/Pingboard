@@ -5,7 +5,9 @@ using Pingboard.Application.Validation;
 
 namespace Pingboard.Application.Monitors.UseCases;
 
-/// <summary>История проверок монитора за окно с ограничением на количество записей.</summary>
+/// <summary>
+///     Сценарий получения истории проверок монитора за указанный временной диапазон.
+/// </summary>
 public sealed class GetMonitorChecks(
     IMonitorRepository monitors,
     ICheckRepository checks,
@@ -39,9 +41,7 @@ public sealed class GetMonitorChecks(
     }
 
     /// <summary>
-    ///     Границы окна и лимит — это вход клиента, и раньше «limit=0» молча превращался
-    ///     в «limit=1», а перевёрнутое окно — в пустой ответ. Ошибка входа должна быть 400,
-    ///     иначе клиент не понимает, почему данные не те.
+    ///     Проверяет корректность границ временного окна и допустимость значения лимита.
     /// </summary>
     private static void ValidateWindow(DateTimeOffset from, DateTimeOffset to, int? limit)
     {

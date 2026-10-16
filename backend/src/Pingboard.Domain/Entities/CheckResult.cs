@@ -21,7 +21,7 @@ public sealed class CheckResult
         Error = outcome.Error;
     }
 
-    /// <summary>bigint identity — история проверок растёт быстрее всего, Guid здесь не нужен.</summary>
+    /// <summary>Уникальный идентификатор записи проверки.</summary>
     public long Id { get; private set; }
 
     public Guid MonitorId { get; private set; }
@@ -36,7 +36,12 @@ public sealed class CheckResult
 
     public string? Error { get; private set; }
 
-    /// <summary>Единственная фабрика: снаружи можно прийти только с результатом пробера.</summary>
+    /// <summary>
+    ///     Создаёт экземпляр результата проверки на основе полученного ответа пробера.
+    /// </summary>
+    /// <param name="monitorId">Идентификатор опрашиваемого монитора.</param>
+    /// <param name="checkedAt">Временная метка выполнения проверки.</param>
+    /// <param name="outcome">Результат выполнения HTTP-пробы.</param>
     public static CheckResult FromProbe(Guid monitorId, DateTimeOffset checkedAt, ProbeOutcome outcome)
     {
         if (monitorId == Guid.Empty) throw DomainValidationException.For(nameof(monitorId), "monitor is required");

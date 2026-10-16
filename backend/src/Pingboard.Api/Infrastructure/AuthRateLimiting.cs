@@ -6,16 +6,9 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     Rate limit на <c>/api/auth/*</c>: подбор пароля и «пакетная» регистрация — дешёвый
-///     способ занять CPU, потому что каждый запрос считает PBKDF2 с 210k итераций.
-///     Счётчик в памяти процесса: для одного инстанса этого достаточно; при масштабировании
-///     (фактор VIII) нужен распределённый счётчик — это M5.
-///     Политики раздельные: логин и регистрация отличаются ценой (регистрация ещё и пишет
-///     в БД), а общий лимит в 60/мин позволял с одного адреса ~86 тысяч регистраций в сутки.
-///     ВАЖНО про прокси: ключ раздела — адрес соединения. За nginx все клиенты приходят
-///     с адресом прокси, то есть лимит становится общим на весь стенд; чтобы разделять
-///     по реальному клиенту, включается ForwardedHeaders
-///     (см. <see cref="ForwardedHeadersSetup" />) — и только за доверенным прокси.
+/// Настройка ограничения частоты запросов (rate limiting) для конечных точек аутентификации.
+/// Защищает ресурсоёмкие операции хеширования паролей (PBKDF2) от подбора и исчерпания ресурсов CPU.
+/// Применяет раздельные лимиты для входа и регистрации, партиционируя запросы по IP-адресу клиента.
 /// </summary>
 internal static class AuthRateLimiting
 {
@@ -80,7 +73,9 @@ internal static class AuthRateLimiting
         return services;
     }
 
-    /// <summary>Раздел лимита — адрес соединения (за прокси это адрес прокси, см. класс).</summary>
+    /// <summary>
+    /// Создаёт партицию с фиксированным окном на основе удалённого IP-адреса соединения.
+    /// </summary>
     private static RateLimitPartition<string> Partition(HttpContext http, int permitLimit, int windowSeconds) =>
         RateLimitPartition.GetFixedWindowLimiter(
             http.Connection.RemoteIpAddress?.ToString() ?? "unknown",

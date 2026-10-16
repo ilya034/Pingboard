@@ -28,7 +28,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
 ARG APP_VERSION=0.0.0
 LABEL org.opencontainers.image.title="pingboard-api" \
-      org.opencontainers.image.description="Pingboard: Api и Worker — один образ, две команды (фактор VIII)" \
+      org.opencontainers.image.description="Pingboard: сервис мониторинга доступности" \
       org.opencontainers.image.version="$APP_VERSION"
 
 RUN apt-get update \

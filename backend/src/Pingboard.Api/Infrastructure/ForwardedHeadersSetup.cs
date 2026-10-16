@@ -5,24 +5,15 @@ using Microsoft.AspNetCore.HttpOverrides;
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     Доверенные заголовки прокси (X-Forwarded-For / X-Forwarded-Proto).
-///     По умолчанию ВЫКЛЮЧЕНО и включается только явной настройкой: включённые
-///     ForwardedHeaders без доверенного прокси — это дыра, а не удобство. Ключ раздела
-///     rate limit'а — адрес соединения, поэтому клиент, которому разрешено подставлять
-///     X-Forwarded-For, обходит лимит на логин простым перебором заголовка.
-///     Включать там, где Api действительно доступен только через свой прокси (compose/prod):
-///     ForwardedHeaders__Enabled=true и хотя бы один из списков —
-///     ForwardedHeaders__KnownProxies__0=172.18.0.2 либо
-///     ForwardedHeaders__KnownNetworks__0=172.16.0.0/12.
-///     Если включено без списков, остаётся умолчание фреймворка (доверие только loopback).
+/// Настройка обработки прокси-заголовков (X-Forwarded-For и X-Forwarded-Proto).
+/// По умолчанию отключена и требует явного указания доверенных прокси или подсетей для предотвращения спуфинга IP-адресов.
 /// </summary>
 internal static class ForwardedHeadersSetup
 {
     private const string SectionName = "ForwardedHeaders";
 
     /// <summary>
-    ///     Регистрирует разбор заголовков прокси и сообщает, нужно ли ставить
-    ///     <c>UseForwardedHeaders()</c> в конвейер (он обязан идти до rate limiter'а).
+    /// Регистрирует параметры обработки заголовков пересылки и возвращает флаг их включения в конвейер HTTP-запросов.
     /// </summary>
     public static bool AddProxyForwardedHeaders(this IServiceCollection services, IConfiguration configuration)
     {

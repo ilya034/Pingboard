@@ -4,8 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     Единый маппинг исключений в ответы RFC 7807 ProblemDetails.
-///     Тела ошибок структурные — это часть SRE-обвязки из §10.
+/// Промежуточное ПО глобальной обработки исключений.
+/// Преобразует ошибки приложения в стандартизированные ответы RFC 7807 (ProblemDetails).
 /// </summary>
 public static class ErrorHandling
 {

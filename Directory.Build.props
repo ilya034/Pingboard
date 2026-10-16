@@ -1,6 +1,6 @@
 <Project>
 
-    <!-- Общие настройки для ВСЕХ проектов решения (фактор II: зависимости и сборка объявлены централизованно). -->
+    <!-- Общие настройки для всех проектов решения. -->
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
         <LangVersion>latest</LangVersion>
@@ -14,14 +14,13 @@
              с TreatWarningsAsErrors это ломает сборку по независящим от кода причинам. -->
         <NuGetAudit>false</NuGetAudit>
         <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
-        <!-- Lock-файлы NuGet (фактор II): центральные версии пинят прямые зависимости,
-             а packages.lock.json — ещё и транзитивные. Лежат рядом с каждым проектом и
-             лежат в git, поэтому «на CI собралось не то, что локально» видно до сборки:
-             restore в locked-mode падает, если lock-файл разошёлся с проектом. -->
+        <!-- Lock-файлы NuGet: центральные версии фиксируют прямые зависимости,
+             а packages.lock.json — транзитивные. Позволяет контролировать воспроизводимость сборки:
+             restore в locked-mode завершается ошибкой при расхождении lock-файла с проектом. -->
         <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     </PropertyGroup>
 
-    <!-- Версия продукта — одна на весь релиз (фактор V: один релиз, много процессов). -->
+    <!-- Версия продукта. -->
     <PropertyGroup>
         <Version>0.1.0</Version>
         <NeutralLanguage>ru</NeutralLanguage>

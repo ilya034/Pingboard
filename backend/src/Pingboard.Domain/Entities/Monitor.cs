@@ -3,10 +3,8 @@ using Pingboard.Domain.Common;
 namespace Pingboard.Domain.Entities;
 
 /// <summary>
-///     Монитор - то, что пользователь поставил «на наблюдение».
-///     Все переходы состояния идут через фабрику <see cref="Create" /> и методы
-///     <see cref="ApplyUpdate" /> / <see cref="RecordCheck" /> / <see cref="SetEnabled" />:
-///     статусные поля нельзя испортить снаружи.
+///     Сущность монитора проверки доступности URL.
+///     Управляет состоянием мониторинга, валидацией параметров и фиксацией результатов проверок.
 /// </summary>
 public sealed class Monitor : Entity<Guid>
 {
@@ -41,7 +39,7 @@ public sealed class Monitor : Entity<Guid>
 
     public DateTimeOffset UpdatedAt { get; private set; }
 
-    /// <summary>Денормализованное состояние воркера: живёт в БД, не в памяти процесса (фактор VI).</summary>
+    /// <summary>Время последней выполненной проверки монитора.</summary>
     public DateTimeOffset? LastCheckedAt { get; private set; }
 
     public bool? LastOk { get; private set; }

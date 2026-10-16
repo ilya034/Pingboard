@@ -4,23 +4,19 @@ using Pingboard.Infrastructure.Security;
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     Ключ подписи HS256 нужно иметь до старта хоста: он попадает в конфигурацию
-///     (Jwt:Secret), откуда его одинаково читают и <c>JwtTokenService</c> (выдача),
-///     и <c>AddJwtBearer</c> (проверка). Иначе подпись и валидация разошлись бы.
+/// Обеспечивает наличие валидного секретного ключа подписи HS256 в конфигурации приложения до старта хоста.
+/// В среде разработки генерирует временный ключ при его отсутствии или некорректности.
 /// </summary>
 public static class JwtSecretProvisioning
 {
-    /// <summary>Сколько байт энтропии генерируем в dev-режиме (HS256 требует ≥ 32).</summary>
+    /// <summary>Длина генерируемого эфемерного секрета в байтах (HS256 требует не менее 32 байт).</summary>
     private const int EphemeralSecretBytes = 48;
 
     /// <summary>
-    ///     В Development секрет можно не задавать — сгенерируем эфемерный, чтобы
-    ///     register/login работали «из коробки». В остальных окружениях отсутствие
-    ///     секрета — ошибка конфигурации, и её лучше поймать здесь, чем получить
-    ///     API, который принимает токены, подписанные известным всем ключом.
-    ///     Возвращает, что именно случилось: вызывающий сам решает, как об этом сказать
-    ///     в логе (никакого статического состояния у класса нет).
+    /// Проверяет наличие ключа Jwt:Secret. В среде Development генерирует эфемерный ключ при отсутствии,
+    /// в остальных окружениях выбрасывает исключение с требованием корректной конфигурации.
     /// </summary>
+    /// <returns>Результат инициализации секрета (<see cref="JwtSecretOutcome"/>).</returns>
     public static JwtSecretOutcome EnsureDevSecret(IConfiguration configuration, bool isDevelopment)
     {
         var secret = configuration["Jwt:Secret"];
@@ -35,7 +31,7 @@ public static class JwtSecretProvisioning
         {
             throw new InvalidOperationException(
                 "Jwt__Secret is not set or is shorter than 32 bytes (HS256). Generate it with: openssl rand -base64 48 " +
-                "and pass it via environment variable (factor III).");
+                "and pass it via environment variable.");
         }
 
         var ephemeral = Convert.ToBase64String(RandomNumberGenerator.GetBytes(EphemeralSecretBytes));

@@ -1,6 +1,6 @@
 namespace Pingboard.Domain.Common;
 
-/// <summary>Данные одной проверки, как их вернул пробер. Домен ничего не знает про HttpClient.</summary>
+/// <summary>Результат выполнения HTTP-проверки целевого сервиса.</summary>
 /// <param name="Ok">Успешна ли проверка (по правилам пробера: 2xx/3xx).</param>
 /// <param name="StatusCode">HTTP-статус, если ответ вообще получен.</param>
 /// <param name="LatencyMs">Замеренная длительность запроса.</param>

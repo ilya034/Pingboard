@@ -5,14 +5,8 @@ using Microsoft.OpenApi;
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     Объявляет в OpenAPI схему безопасности Bearer и ставит требование к тем операциям,
-///     которые помечены RequireAuthorization().
+/// Настраивает схему безопасности HTTP Bearer (JWT) в спецификации OpenAPI и применяет её к конечным точкам с авторизацией.
 /// </summary>
-/// <remarks>
-///     Раньше здесь был <c>WithOpenApi</c> на группе маршрутов, но он признан устаревшим
-///     (ASPDEPR002), а требование выводится прямо из метаданных endpoint'а: одна точка
-///     правды — RequireAuthorization() в MonitorEndpoints, без дублирования списка путей.
-/// </remarks>
 public static class OpenApiSecuritySetup
 {
     public const string SchemeId = "Bearer";

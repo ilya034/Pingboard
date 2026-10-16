@@ -1,11 +1,11 @@
-# deploy/docker-compose.prod.yml — переопределения для «прода» на VPS (фактор X: тот же образ, другой env).
+# deploy/docker-compose.prod.yml — переопределения для запуска на сервере.
 # Запускать из КОРНЯ репозитория (--env-file обязателен: подстановка ${...} читает .env из каталога
 # compose-файла, то есть deploy/, а не из корня):
 #   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
 #   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml --profile migrate run --rm migrate
 #
-# Отличия от dev-стенда: Api не публикуется наружу (API_BIND=127.0.0.1:8080 в .env — см. .env.example),
-# схему приводит отдельный one-off процесс migrate (фактор XII), а не сам Api.
+# Отличия от dev-стенда: Api не публикуется наружу (API_BIND=127.0.0.1:8080),
+# а схему применяет отдельный one-off процесс миграций.
 name: pingboard
 
 services:
@@ -24,8 +24,8 @@ services:
       - ${PGDATA_PATH:-/srv/pingboard/pgdata}:/var/lib/postgresql
 
   migrate:
-    # Тот же образ и тот же тег, что у api/worker: админ-процесс — это третья команда одного
-    # релиза, а не отдельная сборка (факторы V, XII).
+    # Тот же образ и тег, что у api/worker: миграции выполняются
+    # тем же бинарником с флагом --migrate.
     image: pingboard-api:${IMAGE_TAG:-local}
     build:
       context: ..

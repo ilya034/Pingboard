@@ -5,7 +5,9 @@ using Pingboard.Application.Monitors.Options;
 
 namespace Pingboard.Application.Monitors.UseCases;
 
-/// <summary>Детали одного монитора: uptime, полоса, последняя задержка.</summary>
+/// <summary>
+///     Сценарий получения информации о мониторе, включая показатели доступности и задержки.
+/// </summary>
 public sealed class GetMonitor(
     IMonitorRepository monitors,
     ICheckRepository checks,

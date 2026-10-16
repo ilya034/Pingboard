@@ -6,7 +6,10 @@ using Pingboard.Infrastructure.Persistence;
 
 namespace Pingboard.Infrastructure.Repositories;
 
-/// <summary>Запись и чтение истории проверок: только сущности наружу, без IQueryable.</summary>
+/// <summary>
+/// Репозиторий для сохранения и чтения результатов проверок доступности.
+/// Предоставляет методы выборки истории и агрегатов без утечки IQueryable за пределы слоя инфраструктуры.
+/// </summary>
 public sealed class CheckRepository(UptimeDbContext db) : ICheckRepository
 {
     public async Task AddRangeAsync(IEnumerable<CheckResult> checks, CancellationToken ct)
@@ -29,7 +32,10 @@ public sealed class CheckRepository(UptimeDbContext db) : ICheckRepository
             .ToListAsync(ct);
     }
 
-    /// <summary>История сразу по всем мониторам дашборда: один запрос вместо N+1.</summary>
+    /// <summary>
+    /// Возвращает историю последних проверок для нескольких мониторов за указанный временной интервал.
+    /// Выполняется одним запросом с ограничением количества записей на монитор.
+    /// </summary>
     public async Task<IReadOnlyList<CheckResult>> HistoryForManyAsync(
         IReadOnlyCollection<Guid> monitorIds,
         DateTimeOffset from,
@@ -45,11 +51,8 @@ public sealed class CheckRepository(UptimeDbContext db) : ICheckRepository
     }
 
     /// <summary>
-    ///     «Top N на монитор» одним запросом. LINQ для этого не годится: EF Core транслирует
-    ///     GroupBy только с агрегатами (GroupBy + Take не поддерживается), а прежний глобальный
-    ///     <c>Take(limit × N)</c> давал starvation — монитор с интервалом 10 с вытеснял из выборки
-    ///     редкие, и те показывались на дашборде серыми, хотя данные есть. Поэтому явный ROW_NUMBER.
-    ///     Метод internal static: текст SQL проверяется тестом без живой БД (ToQueryString).
+    /// Формирует SQL-запрос для выборки последних N проверок на каждый монитор с использованием оконной функции ROW_NUMBER.
+    /// Исключает starvation редких проверок при глобальном LIMIT и поддерживается тестами без подключения к БД.
     /// </summary>
     internal static IQueryable<CheckResult> HistoryForManyQuery(
         UptimeDbContext db,
@@ -80,19 +83,20 @@ public sealed class CheckRepository(UptimeDbContext db) : ICheckRepository
     }
 
     /// <summary>
-    ///     uptime за окно: считается на лету (count FILTER в терминах SQL), кэш не нужен на таких объёмах.
+    /// Рассчитывает долю успешных проверок (uptime ratio) для указанного монитора за период.
     /// </summary>
     public async Task<double?> UptimeRatioAsync(Guid monitorId, DateTimeOffset from, DateTimeOffset to,
         CancellationToken ct)
     {
-        // Один агрегатный запрос, а не два раздельных COUNT: между ними успевала вставиться
-        // проверка, и тогда ok мог оказаться больше total (uptime > 1 — уже неверный ответ).
+        // Выполняется единым агрегатным запросом, чтобы избежать расхождения между успешными и общими проверками.
         var aggregate = await UptimeRatiosQuery(db, [monitorId], from, to).FirstOrDefaultAsync(ct);
 
         return aggregate is null ? null : (double)aggregate.Ok / aggregate.Total;
     }
 
-    /// <summary>uptime по всем мониторам дашборда одним агрегатом — вместо двух Count на каждый монитор.</summary>
+    /// <summary>
+    /// Рассчитывает долю успешных проверок для нескольких мониторов одним агрегатным запросом.
+    /// </summary>
     public async Task<IReadOnlyDictionary<Guid, double?>> UptimeRatioForManyAsync(
         IReadOnlyCollection<Guid> monitorIds,
         DateTimeOffset from,
@@ -107,14 +111,8 @@ public sealed class CheckRepository(UptimeDbContext db) : ICheckRepository
     }
 
     /// <summary>
-    ///     GROUP BY monitor_id с подсчётом успешных: один запрос на весь список мониторов.
-    ///     Мониторы без проверок в окне в результат не попадают (uptime неизвестен, а не ноль).
-    ///     Метод internal static: SQL проверяется тестом без живой БД (ToQueryString).
-    /// </summary>
-    /// <summary>
-    ///     GROUP BY monitor_id с подсчётом успешных: один запрос на весь список мониторов.
-    ///     Мониторы без проверок в окне в результат не попадают (uptime неизвестен, а не ноль).
-    ///     Метод internal static: SQL проверяется тестом без живой БД (ToQueryString).
+    /// Формирует запрос группировки проверок по мониторам с подсчётом общего числа и успешных проверок.
+    /// Мониторы без проверок в окне не включаются в выборку.
     /// </summary>
     internal static IQueryable<CheckUptimeAggregate> UptimeRatiosQuery(
         UptimeDbContext db,

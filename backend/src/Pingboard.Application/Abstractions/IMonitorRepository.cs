@@ -9,9 +9,11 @@ public interface IMonitorRepository
     Task<IReadOnlyList<Monitor>> ListAsync(Guid ownerId, CancellationToken ct);
 
     /// <summary>
-    ///     Включённые мониторы, у которых наступило время проверки (last_checked_at + interval &lt;= now
-    ///     или проверок ещё не было). Это и есть весь «планировщик» — фактор VI.
+    ///     Возвращает активные мониторы, для которых подошло время очередной проверки.
     /// </summary>
+    /// <param name="now">Текущая временная метка.</param>
+    /// <param name="batch">Максимальное количество мониторов в выборке.</param>
+    /// <param name="ct">Токен отмены операции.</param>
     Task<IReadOnlyList<Monitor>> ListDueAsync(DateTimeOffset now, int batch, CancellationToken ct);
 
     void Remove(Monitor monitor);

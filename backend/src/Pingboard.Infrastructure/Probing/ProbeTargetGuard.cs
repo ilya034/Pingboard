@@ -4,14 +4,9 @@ using System.Net.Sockets;
 namespace Pingboard.Infrastructure.Probing;
 
 /// <summary>
-///     Барьер SSRF для пробера. Адрес проверки задаёт пользователь, поэтому «проверить URL» —
-///     это ещё и «сделать запрос от имени сервера куда угодно»: во внутреннюю сеть, в Docker-сеть,
-///     в метаданные облака (169.254.169.254). Барьер стоит на уровне соединения
-///     (<c>SocketsHttpHandler.ConnectCallback</c>): адрес резолвится здесь и здесь же проверяется,
-///     поэтому подмена DNS между валидацией и коннектом (DNS rebinding) не работает — соединяемся
-///     ровно с проверенным IP.
-///     Отключается только явной настройкой <c>Probe__AllowPrivateNetworks=true</c> — для стенда,
-///     где проверки внутренних адресов нужны осознанно.
+///     Защита от атак класса SSRF (Server-Side Request Forgery) при выполнении исходящих сетевых проверок.
+///     Реализована через кастомный <see cref="SocketsHttpHandler.ConnectCallback" />, предотвращая DNS rebinding
+///     и блокируя обращения к приватным и служебным IP-диапазонам (loopback, RFC 1918, link-local, cloud metadata).
 /// </summary>
 public static class ProbeTargetGuard
 {

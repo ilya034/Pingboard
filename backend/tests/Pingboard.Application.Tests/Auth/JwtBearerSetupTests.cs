@@ -9,9 +9,7 @@ using Pingboard.Infrastructure.Security.Options;
 namespace Pingboard.Application.Tests.Auth;
 
 /// <summary>
-///     Проверяет, что схема аутентификации настроена так же, как её проверяет выдача токенов:
-///     ключ подписи, issuer, audience и отключённый маппинг claims. Ошибка здесь не ломает
-///     сборку — она превращается в «все получают 401» или, что хуже, в приём чужих токенов.
+/// Тесты параметров схемы аутентификации JwtBearer (проверка ключа подписи, эмитента, аудитории и маппинга claims).
 /// </summary>
 public sealed class JwtBearerSetupTests
 {

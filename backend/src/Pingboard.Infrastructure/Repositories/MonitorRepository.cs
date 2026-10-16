@@ -6,7 +6,7 @@ using Pingboard.Infrastructure.Persistence;
 namespace Pingboard.Infrastructure.Repositories;
 
 /// <summary>
-///     Репозитории наружу отдают сущности и готовые списки — никаких IQueryable (§13).
+///     Репозиторий сущностей <see cref="Monitor" /> на базе EF Core.
 /// </summary>
 public sealed class MonitorRepository(UptimeDbContext db) : IMonitorRepository
 {
@@ -30,16 +30,13 @@ public sealed class MonitorRepository(UptimeDbContext db) : IMonitorRepository
     }
 
     /// <summary>
-    ///     «Планировщик» целиком выражен SQL-запросом: состояние расписания лежит в БД,
-    ///     поэтому воркер stateless и переживает рестарт в любой момент (факторы VI, IX).
-    ///     Выборка и захват — два шага, и это принципиально: между «нашёл просроченные»
-    ///     и «записал результат» проходит вся итерация (батч × таймаут), поэтому без захвата
-    ///     соседний воркер или перекрывшаяся итерация проверили бы те же мониторы второй раз
-    ///     и записали дубль в историю. Захват — условный UPDATE: он же и проверка «всё ещё
-    ///     просрочен» на актуальной версии строки, то есть CAS без явных блокировок.
-    ///     Цена: если процесс умрёт сразу после захвата, монитор пропустит один интервал
-    ///     (результата-то нет) — это лучше, чем дубли в истории.
+    ///     Выбирает и атомарно захватывает пачку мониторов, готовых к очередной проверке.
+    ///     Захват выполняется через условный UPDATE (CAS-семантика), что исключает
+    ///     конкурентную обработку одних и тех же записей параллельными воркерами.
     /// </summary>
+    /// <param name="now">Текущая временная метка.</param>
+    /// <param name="batch">Максимальный размер батча.</param>
+    /// <param name="ct">Токен отмены операции.</param>
     public async Task<IReadOnlyList<Monitor>> ListDueAsync(DateTimeOffset now, int batch, CancellationToken ct)
     {
         var candidates = await ListDueQuery(db, now, batch)

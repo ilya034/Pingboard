@@ -20,8 +20,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 /**
- * Вход/выход и токен. Токен лежит в localStorage (переживает F5), а сервер сессий не держит:
- * JWT — это и есть фактор VI «stateless-процессы» со стороны клиента.
+ * Провайдер контекста авторизации: сохраняет токен в localStorage и предоставляет методы входа и выхода.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [auth, setAuth] = useState<StoredAuth | null>(() => readStoredAuth())

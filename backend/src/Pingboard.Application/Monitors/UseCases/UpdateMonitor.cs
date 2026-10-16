@@ -6,7 +6,9 @@ using Pingboard.Application.Validation;
 
 namespace Pingboard.Application.Monitors.UseCases;
 
-/// <summary>Частичное обновление монитора (PATCH-семантика: null — «не менять»).</summary>
+/// <summary>
+///     Сценарий частичного обновления параметров монитора (PATCH-семантика).
+/// </summary>
 public sealed class UpdateMonitor(
     IMonitorRepository monitors,
     IUnitOfWork unitOfWork,

@@ -1,14 +1,12 @@
-﻿# scripts/build-web.ps1 — проверки и сборка SPA: зависимости -> линтер -> типы -> тесты -> бандл.
+# scripts/build-web.ps1 — проверки и сборка SPA: зависимости -> линтер -> типы -> тесты -> бандл.
 #
-# В песочнице DSH нужны три флага, и все — из SANDBOX.md §8:
-#   * --cache                 кэш npm по умолчанию лежит в %LOCALAPPDATA% (вне workspace) -> EPERM;
-#   * --configLoader native   Vite на Windows зовёт exec("net use") -> spawn EPERM;
-#   * --pool=threads          Vitest поднимает пул через child_process.fork -> spawn EPERM.
-# На Linux и на обычной машине работает каноничный путь `npm ci && npm run lint && npm test && npm run build`
-# (сборка и тесты в том же виде зашиты в CI, .github/workflows/ci.yml, ступень `web`).
+# Флаги для выполнения в изолированном окружении:
+#   * --cache                 кэш npm внутри рабочей директории проекта;
+#   * --configLoader native   прямая загрузка конфигурации Vite без системных утилит;
+#   * --pool=threads          поточный пул Vitest.
+# Каноничный запуск для обычного окружения: `npm ci && npm run lint && npm test && npm run build`.
 #
-# Готовые шаги лежат в frontend/package.json (lint, test:sandbox, build:sandbox), чтобы
-# флаги не дублировались.
+# Готовые сценарии определены в frontend/package.json.
 
 [CmdletBinding()]
 param(
@@ -45,8 +43,7 @@ try {
     }
 
     Write-Host '== tsc --noEmit && vite build --configLoader native' -ForegroundColor Cyan
-    # `| Out-Host` обязателен: без него stdout нативной команды не успевает слиться до выхода
-    # оболочки (SANDBOX.md §7).
+    # `| Out-Host` используется для гарантированного сброса stdout нативной команды перед завершением.
     & npm run build:sandbox 2>&1 | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "сборка фронтенда не прошла (код $LASTEXITCODE)" }
 

@@ -3,7 +3,7 @@ using Pingboard.Domain.Common;
 namespace Pingboard.Domain.Entities;
 
 /// <summary>
-///     Владелец мониторов.
+///     Пользователь системы (владелец мониторов).
 /// </summary>
 public sealed class User : Entity<Guid>
 {
@@ -28,24 +28,28 @@ public sealed class User : Entity<Guid>
     public DateTimeOffset CreatedAt { get; private set; }
 
     /// <summary>
-    ///     Фабрика принимает уже посчитанный хеш: домен не знает ни про BCrypt, ни про PBKDF2 —
-    ///     это порт <c>IPasswordHasher</c> в Application.
+    ///     Регистрирует нового пользователя с предварительно вычисленным хешем пароля.
     /// </summary>
+    /// <param name="email">Email пользователя.</param>
+    /// <param name="passwordHash">Хеш пароля.</param>
+    /// <param name="createdAt">Временная метка регистрации.</param>
     public static User Register(string email, string passwordHash, DateTimeOffset createdAt)
     {
         return new User(Guid.NewGuid(), NormalizeEmail(email), ValidateHash(passwordHash), createdAt);
     }
 
-    /// <summary>Email нормализуется к нижнему регистру — иначе UNIQUE не спасёт от дублей вида A@b / a@B.</summary>
+    /// <summary>
+    ///     Нормализует адрес электронной почты к нижнему регистру и проверяет его структуру.
+    /// </summary>
+    /// <param name="email">Входной адрес электронной почты.</param>
+    /// <returns>Нормализованный адрес электронной почты.</returns>
     public static string NormalizeEmail(string? email)
     {
         if (string.IsNullOrWhiteSpace(email)) throw DomainValidationException.For(nameof(Email), "email is required");
 
         var trimmed = email.Trim().ToLowerInvariant();
 
-        // Проверка намеренно строже, чем «есть собака и она не с краю»: адрес с пробелом внутри,
-        // с двумя собаками или с доменом без точки — это не «странный, но рабочий» email,
-        // а заведомо недоставляемый адрес (и, например, «a@b» ломает представление о домене).
+        // Проверка формата: запрещены внутренние пробелы, множественные символы '@' и некорректная структура домена.
         if (trimmed.Length > EmailMaxLength ||
             trimmed.Any(char.IsWhiteSpace) ||
             trimmed.Count(c => c == '@') != 1) throw DomainValidationException.For(nameof(Email), "email is invalid");

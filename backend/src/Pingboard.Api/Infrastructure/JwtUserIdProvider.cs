@@ -6,10 +6,8 @@ using Pingboard.Application.Common;
 namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
-///     Владелец текущего запроса = claim <c>sub</c> проверенного JWT (M4).
-///     Токен подписан сервером, поэтому claim можно считать доверенным; никакого
-///     пользователя «по умолчанию» здесь нет — отсутствие валидного токена даёт 401,
-///     а не доступ к чужому аккаунту. Сценарии Application от смены реализации не меняются.
+/// Извлекает идентификатор текущего пользователя из утверждения <c>sub</c> проверенного JWT-токена в текущем HttpContext.
+/// Выбрасывает <see cref="UnauthorizedException"/>, если токен не содержит валидного GUID пользователя.
 /// </summary>
 public sealed class JwtUserIdProvider(IHttpContextAccessor accessor) : ICurrentUser
 {

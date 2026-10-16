@@ -7,11 +7,11 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Админ-режим «только схема» (фактор XII): тот же образ, отдельная команда и отдельный процесс.
+// Режим применения миграций базы данных при запуске с аргументом --migrate.
 if (args.Contains("--migrate", StringComparer.Ordinal))
 {
-    // Тот же DI-корень, что и у веб-процесса: AddInfrastructure регистрирует сервисы
-    // (JwtTokenService, HttpProbeService), которым нужен TimeProvider из AddApplication.
+    // DI-контейнер для выполнения миграций: AddInfrastructure регистрирует контекст БД,
+    // которому требуется TimeProvider из AddApplication.
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -21,13 +21,11 @@ if (args.Contains("--migrate", StringComparer.Ordinal))
     return;
 }
 
-// Секрет подписи нужен до старта хоста: из него одинаково читают ключ и выдача
-// (JwtTokenService), и проверка (AddJwtBearer). В Development секрет можно не задавать.
+// Секрет подписи нужен до старта хоста: из него читают ключ JwtTokenService и AddJwtBearer.
+// В Development секрет может быть сгенерирован автоматически.
 var secretOutcome = JwtSecretProvisioning.EnsureDevSecret(builder.Configuration, builder.Environment.IsDevelopment());
 
-// Конфигурация
-// Только env (фактор III): appsettings.json содержит dev-умолчания без секретов,
-// всё, что отличается в проде, приходит переменными вида Worker__MaxParallel.
+// Настройка структурированного логирования в формате JSON.
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
 {
@@ -36,8 +34,7 @@ builder.Logging.AddJsonConsole(options =>
     options.UseUtcTimestamp = true;
 });
 
-// DI-корень
-// Api знает про Infrastructure ровно настолько, чтобы вызвать AddInfrastructure():
+// Регистрация слоёв приложения и инфраструктуры.
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -64,7 +61,7 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .AllowAnyHeader()
     .AllowAnyMethod()));
 
-// Graceful shutdown(фактор IX).
+// Таймаут корректного завершения работы приложения (graceful shutdown).
 builder.Services.Configure<HostOptions>(options => { options.ShutdownTimeout = TimeSpan.FromSeconds(10); });
 
 var app = builder.Build();
@@ -79,9 +76,7 @@ else if (secretOutcome == JwtSecretOutcome.EphemeralGenerated)
         "Jwt__Secret is not set: an ephemeral signing key was generated for this run only. " +
         "Issued tokens will become invalid after restart. For a staging environment, set Jwt__Secret.");
 
-// Startup-задачи: миграции и сид демо-пользователя
-// MVP (M0): MigrateOnStart=true — Api сам приводит схему в порядок.
-// M5: тот же шаг выполняется отдельным процессом pingboard-migrate (фактор XII).
+// Автоматическое применение миграций БД при старте (по умолчанию включено в Development).
 var migrateOnStart = builder.Configuration.GetValue("MigrateOnStart", app.Environment.IsDevelopment());
 
 if (migrateOnStart)
@@ -91,12 +86,11 @@ if (migrateOnStart)
     }
     catch (Exception ex)
     {
-        // Приложение поднимается даже с недоступной БД: /healthz зелёный, /readyz — 503.
+        // Приложение запускается даже при временной недоступности БД: /healthz возвращает 200, а /readyz — 503.
         app.Logger.LogWarning(ex, "Migration not applied: DB unavailable");
     }
 
-// Сид демо-пользователя: после включения JWT (M4) это учётка, которой можно войти
-// в свежеподнятый стенд (POST /api/auth/login), а не «владелец по умолчанию».
+// Инициализация демонстрационной учётной записи (только для среды Development).
 var seedOnStart = builder.Configuration.GetValue("SeedOnStart", app.Environment.IsDevelopment());
 
 // Пароль демо-учётки лежит в открытом исходнике (DemoUser), поэтому вне Development

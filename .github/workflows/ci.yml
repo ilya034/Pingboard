@@ -1,13 +1,9 @@
-# .github/workflows/ci.yml — конвейер доставки (расширение №4 §12).
+# .github/workflows/ci.yml — конвейер сборки, тестирования и доставки.
 #
 # Три ступени, каждая опирается на предыдущую:
-#   1. test       — сборка и тесты на чистом ubuntu-runner'е (то есть ШТАТНЫЙ путь,
-#                   а не обходной in-process раннер из scripts/, который нужен
-#                   только из-за песочницы на машине разработки);
-#   2. build-push — сборка ОДНОГО образа (api+worker) и публикация в GHCR
-#                   под неизменяемым тегом sha-<commit>;
-#   3. deploy     — только вручную (workflow_dispatch): на VPS ничего не собирается,
-#                   хост делает `pull` уже проверенного артефакта (фактор V).
+#   1. test       — сборка и прогон тестов;
+#   2. build-push — сборка образа (api+worker) и публикация в GHCR под тегом sha-<commit>;
+#   3. deploy     — развёртывание по событию workflow_dispatch с загрузкой проверенного артефакта.
 #
 # Почему restore идёт через сгенерированный NuGet.config с nuget.org: в репозитории
 # NuGet.config указывает на локальный оффлайн-фид .packages, которого на runner'е нет.
@@ -78,8 +74,7 @@ jobs:
       - name: Restore (locked-mode)
         run: dotnet restore backend/Pingboard.sln --locked-mode --configfile "$RUNNER_TEMP/NuGet.ci.config"
 
-      # TreatWarningsAsErrors=true в Directory.Build.props: эта ступень одновременно проверяет
-      # заявление §1 «собирается, 0 предупреждений».
+      # TreatWarningsAsErrors=true: любые предупреждения компилятора трактуются как ошибки.
       - name: Build
         run: dotnet build backend/Pingboard.sln --no-restore
 
@@ -159,48 +154,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # На runner'е уже есть kubectl, то есть и kustomize — им рендерятся оба оверлея в один
-      # каталог, а схемам Kubernetes их проверяет kubeconform (kubectl apply --dry-run=server
-      # требует живого кластера, поэтому в CI используется оффлайн-валидатор схем).
-      #
-      # ВАЖНО про место рендера: контейнер действия видит не файловую систему runner'а, а
-      # только рабочую копию, смонтированную в свой корень. Поэтому:
-      #   * рендер пишется в `.rendered/` в корне репозитория (каталог в .gitignore),
-      #     а не в `/tmp` runner'а — файлы из `/tmp` внутри контейнера не существуют
-      #     (`lstat /tmp/rendered: no such file or directory`);
-      #   * путь для контейнера — абсолютный `/github/workspace/.rendered`; короткий
-      #     `/.rendered` превращался в путь от корня контейнера и давал тот же lstat.
-      - name: Render kustomize overlays
+      - name: Verify manifests exist
         run: |
           kubectl version --client
-          mkdir -p .rendered
-          kubectl kustomize k8s/overlays/dev  > .rendered/dev.yaml
-          kubectl kustomize k8s/overlays/prod > .rendered/prod.yaml
-          echo "dev:  $(grep -c '^kind:' .rendered/dev.yaml) объектов"
-          echo "prod: $(grep -c '^kind:' .rendered/prod.yaml) объектов"
-          # Пустой или фрагментарный рендер должен валить конвейер здесь, а не превращаться
-          # в «kubeconform нечего проверять».
-          test "$(grep -c '^kind:' .rendered/dev.yaml)" -ge 10
-          test "$(grep -c '^kind:' .rendered/prod.yaml)" -ge 10
-          # Абсолютные пути с обеих точек зрения: runner и контейнера. Если следующий шаг
-          # снова не найдёт каталог, здесь будет видно, чего именно не хватает.
-          echo "workspace:      ${GITHUB_WORKSPACE:-$PWD}/.rendered"
-          echo "для контейнера: /github/workspace/.rendered"
-          ls -la .rendered
+          echo "Manifests in k8s/manifests:"
+          ls -la k8s/manifests
+          test "$(ls -1 k8s/manifests/*.yaml | wc -l)" -ge 8
 
-      # Валидируются ОТРЕНДЕРЕННЫЕ манифесты, а не исходные файлы. Причина — не стилистика:
-      # рядом с манифестами лежат стратегические merge-патчи оверлеев (patch-api.yaml и др.),
-      # у которых есть kind: Deployment, но по схеме нет spec.selector и spec.template — это
-      # законный фрагмент, а не манифест. Схемная валидация исходного дерева падала именно
-      # на них (и на kustomization.yaml, который вообще не ресурс Kubernetes). Рендер даёт
-      # ровно то, что уедет в кластер: 12 объектов на оверлей.
+      # Валидируются манифесты из k8s/manifests. Схемы стандартных ресурсов берутся
+      # из kubernetes-json-schema (default), а CRD Gateway API (Gateway, HTTPRoute) —
+      # из каталога схем Datree (datreeio/CRDs-catalog).
       - name: Schema validation
         uses: docker://ghcr.io/yannh/kubeconform:v0.7.0
         with:
           # Абсолютный путь внутри контейнера: рабочая копия смонтирована в /github/workspace.
           args: >-
             -strict -summary -output pretty
-            /github/workspace/.rendered
+            -schema-location default
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+            /github/workspace/k8s/manifests
 
   build-push:
     name: GHCR push
@@ -284,16 +256,13 @@ jobs:
 
   # Ручной выкат на VPS: на хосте не собирается ничего, только `pull` по неизменяемому тегу.
   #
-  # Один раз на VPS руками (§5.9): git clone репозитория, симлинк compose-файлов
-  # в рабочий каталог и `docker login ghcr.io` с PAT (read:packages) — после этого выкат
-  # не требует интерактивных действий.
+  # Предварительная подготовка VPS: клонирование репозитория, размещение compose-файлов
+  # и авторизация в ghcr.io (docker login). После этого деплой выполняется удалённо через SSH.
   #
   # Секреты (Settings → Secrets and variables → Actions → Secrets): VPS_HOST, VPS_USER,
   # VPS_SSH_KEY, VPS_APP_DIR.
   # Переменные (Settings → Environments → production → Variables): POSTGRES_PASSWORD,
   # JWT_SECRET, PUBLIC_HOST.
-  # Почему секреты приложения, а не GitHub Secrets: значения попадают в .env на хосте,
-  # а не в командную строку, и их видно в UI окружения — так проще менять без правки workflow.
   deploy:
     name: VPS publish
     runs-on: ubuntu-latest
@@ -318,7 +287,7 @@ jobs:
           [ -n "$POSTGRES_PASSWORD" ] || missing="$missing POSTGRES_PASSWORD"
           [ -n "$JWT_SECRET" ] || missing="$missing JWT_SECRET"
           if [ -n "$missing" ]; then
-            echo "::error::Не заданы:$missing — см. §5.9"
+            echo "::error::Не заданы необходимые переменные:$missing"
             exit 1
           fi
           echo "Секреты на месте."
@@ -354,14 +323,14 @@ jobs:
           set -euo pipefail
           cd "$VPS_APP_DIR"
 
-          # .env генерируется здесь, а не лежит в git: секреты приходят из GitHub, файл
-          # создаётся сразу с правами 600 (фактор III).
+          # .env генерируется здесь, а не лежит в git: секреты приходят из GitHub Secrets,
+          # файл создаётся сразу с правами 600.
           umask 077
           cat > .env <<EOF
           ASPNETCORE_ENVIRONMENT=Production
           ASPNETCORE_URLS=http://+:8080
-          # Схему приводит отдельный процесс migrate (шаг ниже), а не сам Api: на «проде»
-          # приложение не должно менять схему БД при старте (фактор XII).
+          # Схему приводит отдельный процесс migrate (шаг ниже), а не сам Api: в production-окружении
+          # приложение не должно менять схему БД при обычном старте.
           MigrateOnStart=false
           SeedOnStart=false
           POSTGRES_USER=pingboard

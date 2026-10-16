@@ -2,7 +2,9 @@ using Pingboard.Application.Abstractions;
 
 namespace Pingboard.Application.Monitors.UseCases;
 
-/// <summary>Удаление монитора: история проверок уходит каскадом в БД.</summary>
+/// <summary>
+///     Сценарий удаления монитора и связанной с ним истории проверок.
+/// </summary>
 public sealed class DeleteMonitor(
     IMonitorRepository monitors,
     IUnitOfWork unitOfWork,

@@ -3,14 +3,14 @@ using Pingboard.Application.Abstractions;
 namespace Pingboard.Api.Endpoints;
 
 /// <summary>
-///     Liveness и readiness (§10):
-///     /healthz — процесс жив, оркестратор не перезапускает контейнер;
-///     /readyz  — сервис готов принимать трафик, то есть БД доступна.
-///     БД проверяется через порт <see cref="IDatabaseHealthProbe" />: в Api нет типов EF Core (§2).
+/// Регистрация конечных точек проверки состояния приложения (liveness /healthz и readiness /readyz).
+/// Проверка доступности БД осуществляется через абстракцию <see cref="IDatabaseHealthProbe" />.
 /// </summary>
 public static class HealthEndpoints
 {
-    /// <summary>Последнее доложенное состояние: 0 — ready, 1 — degraded. См. <see cref="LogTransition" />.</summary>
+    /// <summary>
+    /// Предыдущее состояние готовности (0 — ready, 1 — degraded) для логирования переходов между состояниями.
+    /// </summary>
     private static int _degraded;
 
     public static IEndpointRouteBuilder MapHealthEndpoints(this IEndpointRouteBuilder app)
