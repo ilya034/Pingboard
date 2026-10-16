@@ -55,6 +55,11 @@ internal static class AuthRateLimiting
                 var policy = http.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
                 var limit = policy == RegisterPolicyName ? registerLimit : loginLimit;
 
+                http.RequestServices
+                    .GetService<ILoggerFactory>()?
+                    .CreateLogger("Pingboard.Api.RateLimiting")
+                    .LogWarning("Rate limit {Policy} exceeded on {Path}", policy ?? "unknown", http.Request.Path);
+
                 var problem = new ProblemDetails
                 {
                     Status = StatusCodes.Status429TooManyRequests,

@@ -8,13 +8,13 @@ namespace Pingboard.Worker.Hosting.Logging;
 ///     (пакета нет в оффлайн-фиде) и повторяет поведение AddJsonConsole: одна JSON-строка на событие,
 ///     scope'ы (в Api это correlation id) тоже попадают в запись.
 /// </summary>
-public sealed class JsonConsoleLoggerProvider : ILoggerProvider
+public sealed class JsonConsoleLoggerProvider(TextWriter? writer = null) : ILoggerProvider
 {
     private readonly Lock _gate = new();
 
     public ILogger CreateLogger(string categoryName)
     {
-        return new JsonConsoleLogger(categoryName, _gate);
+        return new JsonConsoleLogger(categoryName, _gate, writer);
     }
 
     public void Dispose()

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Pingboard.Application.Abstractions;
 using Pingboard.Application.Monitors.Dtos;
@@ -14,7 +15,8 @@ public sealed class UpdateMonitor(
     IUnitOfWork unitOfWork,
     ICurrentUser currentUser,
     TimeProvider timeProvider,
-    IOptions<MonitorsOptions> options)
+    IOptions<MonitorsOptions> options,
+    ILogger<UpdateMonitor>? logger = null)
 {
     public async Task<MonitorDto> ExecuteAsync(Guid id, UpdateMonitorRequest request, CancellationToken ct)
     {
@@ -25,6 +27,8 @@ public sealed class UpdateMonitor(
             timeProvider.GetUtcNow());
 
         await unitOfWork.SaveChangesAsync(ct);
+
+        logger?.LogInformation("Monitor updated {MonitorId}", monitor.Id);
 
         // Форма ответа та же, что у GET/POST: полоса нужной длины (сегменты «unknown»),
         // а не пустой массив — иначе клиент после PATCH рисует другую разметку.
