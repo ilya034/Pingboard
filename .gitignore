@@ -19,6 +19,7 @@ publish/
 appsettings.Production.json
 appsettings.Local.json
 secrets.json
+scripts/
 # Секреты локального k8s-стенда: из этого файла scripts/k3d-up.ps1 создаёт Secret.
 # Рядом лежит k8s/dev.env.example — он в git.
 k8s/dev.env
