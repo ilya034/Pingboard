@@ -1,0 +1,192 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vector
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/part-of: pingboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vector
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/part-of: pingboard
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vector
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/part-of: pingboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vector
+subjects:
+  - kind: ServiceAccount
+    name: vector
+    namespace: logging
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/part-of: pingboard
+data:
+  vector.yaml: |
+    data_dir: /vector-data-dir
+
+    sources:
+      k8s_logs:
+        type: kubernetes_logs
+
+    transforms:
+      filter_and_parse:
+        type: remap
+        inputs: ["k8s_logs"]
+        source: |
+          # Фильтруем только поды приложения pingboard
+          if .kubernetes.pod_namespace != "pingboard" {
+            abort
+          }
+
+          raw_msg = .message
+
+          # Парсим JSON из stdout
+          parsed, err = parse_json(raw_msg)
+          if err == null {
+            ., _ = merge(., parsed)
+          }
+
+          # 1. timestamp
+          if exists(.Timestamp) {
+            .timestamp = .Timestamp
+          } else if !exists(.timestamp) {
+            .timestamp = format_timestamp!(now(), "%+")
+          }
+
+          # 2. level (приводим к единому стандарту в нижнем регистре: info, warning, error)
+          if exists(.LogLevel) {
+            .level = downcase(to_string!(.LogLevel))
+          } else if exists(.level) {
+            .level = downcase(to_string!(.level))
+          } else {
+            .level = "info"
+          }
+
+          if .level == "information" {
+            .level = "info"
+          } else if .level == "warn" {
+            .level = "warning"
+          }
+
+          # 3. message
+          if exists(.Message) {
+            .message = to_string!(.Message)
+          } else if !exists(.message) {
+            .message = raw_msg
+          }
+
+          # 4. service.name
+          app_name = .kubernetes.pod_labels."app.kubernetes.io/name"
+          if is_string(app_name) && app_name != "" {
+            ."service.name" = app_name
+            .service = app_name
+          } else if exists(.kubernetes.container_name) {
+            ."service.name" = .kubernetes.container_name
+            .service = .kubernetes.container_name
+          } else {
+            ."service.name" = "pingboard"
+            .service = "pingboard"
+          }
+
+          # Сохраняем имя пода для удобства
+          .pod_name = .kubernetes.pod_name
+
+          # Очищаем служебный путь к файлу
+          del(.file)
+
+    sinks:
+      victoria_logs:
+        type: http
+        inputs: ["filter_and_parse"]
+        uri: "http://victoria-logs.logging.svc.cluster.local:9428/insert/jsonline?_stream_fields=service.name,service,level&_time_field=timestamp&_msg_field=message"
+        encoding:
+          codec: json
+        framing:
+          method: newline_delimited
+        compression: none
+        healthcheck:
+          enabled: false
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vector
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/part-of: pingboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vector
+        app.kubernetes.io/part-of: pingboard
+    spec:
+      serviceAccountName: vector
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: vector
+          image: timberio/vector:0.45.0-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: VECTOR_LOG
+              value: "info"
+            - name: VECTOR_CONFIG
+              value: "/etc/vector/vector.yaml"
+            - name: VECTOR_SELF_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector
+              readOnly: true
+            - name: var-log
+              mountPath: /var/log
+              readOnly: true
+            - name: data
+              mountPath: /vector-data-dir
+      volumes:
+        - name: config
+          configMap:
+            name: vector-config
+        - name: var-log
+          hostPath:
+            path: /var/log
+        - name: data
+          emptyDir: {}
