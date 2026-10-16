@@ -10,7 +10,7 @@ import { patchMonitorInList, restoreMonitorInList } from '../api/query'
 import type { CreateMonitorRequest, UpdateMonitorRequest } from '../api/types'
 
 /**
- * «Живость» дашборда на MVP — поллинг: SSE/WebSocket в PLAN.md §7 вынесены в расширения.
+ * «Живость» дашборда на MVP — поллинг: SSE/WebSocket в §7 вынесены в расширения.
  * 10 секунд — компромисс между свежестью статуса и нагрузкой на Api.
  */
 const POLL_MS = 10_000

@@ -11,7 +11,7 @@ namespace Pingboard.Infrastructure.Probing;
 ///     поэтому подмена DNS между валидацией и коннектом (DNS rebinding) не работает — соединяемся
 ///     ровно с проверенным IP.
 ///     Отключается только явной настройкой <c>Probe__AllowPrivateNetworks=true</c> — для стенда,
-///     где проверки внутренних адресов нужны осознанно (README §6.5).
+///     где проверки внутренних адресов нужны осознанно.
 /// </summary>
 public static class ProbeTargetGuard
 {

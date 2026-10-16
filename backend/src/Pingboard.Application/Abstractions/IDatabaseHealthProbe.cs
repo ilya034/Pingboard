@@ -2,7 +2,7 @@ namespace Pingboard.Application.Abstractions;
 
 /// <summary>
 ///     Готовность зависимости: доступна ли БД (readiness-проба).
-///     Портом закрывается правило «в Api нет ни одного типа EF Core» (§2 README):
+///     Портом закрывается правило «в Api нет ни одного типа EF Core» (§2):
 ///     endpoint спрашивает слой Infrastructure, а не <c>UptimeDbContext</c> напрямую.
 /// </summary>
 public interface IDatabaseHealthProbe

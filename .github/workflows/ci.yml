@@ -1,4 +1,4 @@
-# .github/workflows/ci.yml — конвейер доставки (расширение №4 из PLAN.md §12).
+# .github/workflows/ci.yml — конвейер доставки (расширение №4 §12).
 #
 # Три ступени, каждая опирается на предыдущую:
 #   1. test       — сборка и тесты на чистом ubuntu-runner'е (то есть ШТАТНЫЙ путь,
@@ -79,7 +79,7 @@ jobs:
         run: dotnet restore backend/Pingboard.sln --locked-mode --configfile "$RUNNER_TEMP/NuGet.ci.config"
 
       # TreatWarningsAsErrors=true в Directory.Build.props: эта ступень одновременно проверяет
-      # заявление README §1 «собирается, 0 предупреждений».
+      # заявление §1 «собирается, 0 предупреждений».
       - name: Build
         run: dotnet build backend/Pingboard.sln --no-restore
 
@@ -284,7 +284,7 @@ jobs:
 
   # Ручной выкат на VPS: на хосте не собирается ничего, только `pull` по неизменяемому тегу.
   #
-  # Один раз на VPS руками (DEPLOY §5.9): git clone репозитория, симлинк compose-файлов
+  # Один раз на VPS руками (§5.9): git clone репозитория, симлинк compose-файлов
   # в рабочий каталог и `docker login ghcr.io` с PAT (read:packages) — после этого выкат
   # не требует интерактивных действий.
   #
@@ -318,7 +318,7 @@ jobs:
           [ -n "$POSTGRES_PASSWORD" ] || missing="$missing POSTGRES_PASSWORD"
           [ -n "$JWT_SECRET" ] || missing="$missing JWT_SECRET"
           if [ -n "$missing" ]; then
-            echo "::error::Не заданы:$missing — см. DEPLOY.md §5.9"
+            echo "::error::Не заданы:$missing — см. §5.9"
             exit 1
           fi
           echo "Секреты на месте."

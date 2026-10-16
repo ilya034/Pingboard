@@ -8,11 +8,11 @@ using Pingboard.Infrastructure.Probing.Options;
 namespace Pingboard.Infrastructure.Probing;
 
 /// <summary>
-///     Реальный HTTP-проверщик. Работает через IHttpClientFactory: сокеты переиспользуются,
+///     HTTP-проверщик. Работает через IHttpClientFactory: сокеты переиспользуются,
 ///     таймауты не «залипают» — правильная работа с исходящими соединениями.
 ///     Адрес задаёт пользователь, поэтому соединение идёт через барьер <see cref="ProbeTargetGuard" />:
 ///     только публичные адреса, внутренние отклоняются с внятной ошибкой (снимается настройкой
-///     <c>Probe__AllowPrivateNetworks=true</c> на доверенном стенде, README §6.5).
+///     <c>Probe__AllowPrivateNetworks=true</c> на доверенном стенде).
 /// </summary>
 public sealed class HttpProbeService(
     IHttpClientFactory httpClientFactory,
@@ -131,7 +131,7 @@ public sealed class HttpProbeService(
         }
         catch (Exception)
         {
-            // см. XML-doc: результат проверки уже определён статусом
+            // результат проверки уже определён статусом
         }
     }
 

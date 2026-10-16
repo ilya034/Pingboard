@@ -5,7 +5,7 @@ using Pingboard.Domain.Entities;
 namespace Pingboard.Infrastructure.Persistence;
 
 /// <summary>
-///     Единственный DbContext приложения. Domain про EF не знает — весь маппинг здесь (Fluent API).
+///     Единственный DbContext приложения.
 /// </summary>
 public sealed class UptimeDbContext(DbContextOptions<UptimeDbContext> options) : DbContext(options)
 {
@@ -17,8 +17,6 @@ public sealed class UptimeDbContext(DbContextOptions<UptimeDbContext> options) :
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // ВАЖНО: все DateTimeOffset уходят в Postgres с Offset=0 (timestamptz).
-        // Без этого Npgsql падает на записи с локальным offset — классические грабли из §13 PLAN.md.
         var utc = new ValueConverter<DateTimeOffset, DateTimeOffset>(
             value => value.ToUniversalTime(),
             value => value.ToUniversalTime());
@@ -27,7 +25,6 @@ public sealed class UptimeDbContext(DbContextOptions<UptimeDbContext> options) :
             value => value.HasValue ? value.Value.ToUniversalTime() : null,
             value => value.HasValue ? value.Value.ToUniversalTime() : null);
 
-        // ApplyConfigurationsFromAssembly сам отбирает типы, реализующие IEntityTypeConfiguration<>.
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(UptimeDbContext).Assembly);
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())

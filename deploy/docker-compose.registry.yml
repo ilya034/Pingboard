@@ -1,15 +1,4 @@
-# deploy/docker-compose.registry.yml — надстройка «образ из реестра» (расширение №4 PLAN.md §12).
-#
-# Зачем. В базовом deploy/docker-compose.yml у api/worker/migrate есть только `build:`: образ
-# собирается на месте (`--build`). Это осознанное решение для стенда без Docker, но на VPS оно
-# означает «собрали на проде — закатили то, что получилось»: ни неизменяемого тега, ни
-# продвижения артефакта (фактор V). Здесь сборка заменяется на `pull` по тегу, который
-# собрал CI, а `build:` из базового файла переопределяется пустым значением.
-#
-# Запуск (на VPS; .env генерирует workflow из GitHub Secrets):
-#   docker compose --env-file .env \
-#     -f docker-compose.yml -f docker-compose.registry.yml -f docker-compose.vps.yml \
-#     --profile web up -d
+# deploy/docker-compose.registry.yml — надстройка «образ из реестра».
 #
 # Переменные: IMAGE (ghcr.io/<owner>/pingboard-api), IMAGE_TAG (sha-<commit> или semver),
 # IMAGE_PREFIX (ghcr.io/<owner> — только для образа web, у него другой Dockerfile).

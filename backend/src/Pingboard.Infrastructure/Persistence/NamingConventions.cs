@@ -1,6 +1,6 @@
 namespace Pingboard.Infrastructure.Persistence;
 
-/// <summary>Именование в snake_case: как в SQL-схеме из §4 PLAN.md.</summary>
+/// <summary>Именование в snake_case.</summary>
 public static class NamingConventions
 {
     public const string UsersTable = "users";

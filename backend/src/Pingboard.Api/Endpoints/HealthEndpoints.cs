@@ -3,10 +3,10 @@ using Pingboard.Application.Abstractions;
 namespace Pingboard.Api.Endpoints;
 
 /// <summary>
-///     Liveness и readiness(§10 PLAN.md):
+///     Liveness и readiness (§10):
 ///     /healthz — процесс жив, оркестратор не перезапускает контейнер;
 ///     /readyz  — сервис готов принимать трафик, то есть БД доступна.
-///     БД проверяется через порт <see cref="IDatabaseHealthProbe" />: в Api нет типов EF Core (§2 README).
+///     БД проверяется через порт <see cref="IDatabaseHealthProbe" />: в Api нет типов EF Core (§2).
 /// </summary>
 public static class HealthEndpoints
 {

@@ -6,10 +6,6 @@
 #
 # Отличия от dev-стенда: Api не публикуется наружу (API_BIND=127.0.0.1:8080 в .env — см. .env.example),
 # схему приводит отдельный one-off процесс migrate (фактор XII), а не сам Api.
-#
-# Порт Api здесь намеренно НЕ переопределяется: compose складывает списки ports из обоих файлов,
-# и вместо замены получилось бы два маппинга — то есть Api остался бы висеть на 0.0.0.0:8080,
-# хотя «прод» должен закрывать его от интернета. Поэтому единственная точка настройки — API_BIND.
 name: pingboard
 
 services:
@@ -24,10 +20,6 @@ services:
       DOTNET_ENVIRONMENT: Production
 
   postgres:
-    # На проде том должен лежать на хостовом диске с бэкапами.
-    # Монтируем /var/lib/postgresql, а не .../data: в 18+ данные лежат в подкаталоге с номером
-    # мажорной версии, поэтому внутри /srv/pingboard/pgdata появится 18/docker/… Так же
-    # устроено и обновление версии: pg_upgrade --link работает, пока смонтирован общий родитель.
     volumes:
       - ${PGDATA_PATH:-/srv/pingboard/pgdata}:/var/lib/postgresql
 
@@ -40,19 +32,10 @@ services:
       dockerfile: deploy/Dockerfile.api
       args:
         APP_VERSION: ${APP_VERSION:-0.1.0}
-    # Админ-процесс: отдельная команда, а не «фоновый режим приложения» (фактор XII).
-    # --migrate — режим «применить схему и выйти» в самой сборке: в рантайм-образе нет SDK,
-    # поэтому migrate-bundle из §9 PLAN.md остаётся задачей M5, но процесс уже honest —
-    # он не поднимает второй Api, а завершается с кодом 0 (или с ошибкой миграции).
     command: ["dotnet", "Pingboard.Api.dll", "--migrate"]
     env_file: ../.env
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      # Без этой строки сервис унаследовал бы dev-значение `MigrateOnStart=true` из `.env`:
-      # на поведение это не влияет (команда `--migrate` выходит до ветки старта с миграциями),
-      # но в `docker compose config` рядом с «прод»-процессом стоял бы dev-флаг — ровно то,
-      # расхождение, которое фактор XII и разделяет.
-      MigrateOnStart: "false"
     depends_on:
       postgres:
         condition: service_healthy

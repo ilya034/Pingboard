@@ -7,7 +7,7 @@ namespace Pingboard.Application.Tests.Infrastructure;
 ///     DbContext для проверки <b>текста</b> SQL, который строят репозитории.
 ///     Соединение не открывается: ToQueryString работает офлайн, строка подключения нужна
 ///     только для того, чтобы провайдер Npgsql собрал команду. Живой Postgres на машине нет,
-///     поэтому это единственная проверка планировщика и «top N на монитор» — см. §9 README.
+///     поэтому это единственная проверка планировщика и «top N на монитор» — см. §9.
 /// </summary>
 public static class TestUptimeDbContext
 {

@@ -1,13 +1,3 @@
-# deploy/docker-compose.yml — локальный стенд: postgres + api + worker + web.
-# Все значения берутся из .env (фактор III/IV). Запускать из корня:
-#   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
-#
-# ВАЖНО: `--env-file` указывает на корневой .env, потому что подстановка ${...} в самом
-# compose-файле читает .env из каталога compose-файла (deploy/), а не из корня репозитория.
-# Без флага POSTGRES_* в сервисе postgres остались бы умолчаниями, а строка подключения Api
-# (ConnectionStrings__Default) пришла бы из .env — и Api не подключился бы к БД.
-# Проверка подстановки: docker compose --env-file .env -f deploy/docker-compose.yml config
-# Значения ниже — те же умолчания, что и в .env.example.
 name: pingboard
 
 services:
@@ -18,16 +8,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pingboard}
       POSTGRES_DB: ${POSTGRES_DB:-pingboard}
     volumes:
-      # ВАЖНО: путь монтирования обязан совпадать с версией образа.
-      # PostgreSQL 18+ объявляет VOLUME /var/lib/postgresql, а PGDATA у него версионный —
-      # /var/lib/postgresql/18/docker. Старый путь /var/lib/postgresql/data (норма для 17
-      # и ниже) в 18+ роняет entrypoint:
-      #   Error: in 18+, these Docker images are configured to store database data in a format
-      #   which is compatible with "pg_ctlcluster" ... there appears to be PostgreSQL data in:
-      #   /var/lib/postgresql/data (unused mount/volume)
-      # Контейнер выходит с кодом 1, и compose сообщает «dependency failed to start: container
-      # ... is unhealthy». Проверка живёт в docker-entrypoint.sh: он ищет PG_VERSION в $PGDATA,
-      # а затем отдельно проверяет, не смонтирован ли том по старому пути.
       - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -38,8 +18,6 @@ services:
     # Порт наружу не публикуем: БД доступна только внутри сети compose.
 
   api:
-    # Один образ на релиз: имя и тег фиксированы, а не «что соберётся» (фактор V).
-    # APP_VERSION уходит в OCI-label образа — см. deploy/Dockerfile.api.
     image: pingboard-api:${IMAGE_TAG:-local}
     build:
       context: ..
@@ -68,8 +46,6 @@ services:
       retries: 6
       start_period: 15s
     restart: unless-stopped
-    # Бюджет приложения на остановку — 10 с (HostOptions.ShutdownTimeout), поэтому Docker даёт
-    # ему больше: при равных значениях SIGKILL приходит ровно в момент доигрывания (фактор IX).
     stop_grace_period: 15s
 
   worker:
@@ -85,10 +61,6 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      # У воркера нет порта, поэтому проверяем не процесс, а пульс: цикл доиграл итерацию
-      # за последние две минуты (порог — Worker__HeartbeatMaxAgeSeconds, по умолчанию 120 с).
-      # Проверку делает сам бинарник в режиме --self-check, а не shell с date/stat: так она
-      # не зависит от состава образа (фактор IX) и совпадает с livenessProbe в k8s.
       test: ["CMD", "dotnet", "worker/Pingboard.Worker.dll", "--self-check"]
       interval: 30s
       timeout: 10s
@@ -97,25 +69,15 @@ services:
     restart: unless-stopped
     # Тот же бюджет, что у Api: WorkerHost даёт hosted-сервисам 10 с на доигрывание итерации.
     stop_grace_period: 15s
-    # Воркер stateless: его можно убивать и перезапускать в любой момент (факторы VI, IX).
 
   web:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.web
       args:
-        # Ссылка на документацию API в SPA. Стенд поднимается с ASPNETCORE_ENVIRONMENT=Development,
-        # то есть Api отдаёт Scalar, а nginx контейнера проксирует его по тому же источнику.
-        # Для «прода» сюда передаётся пустое значение — тогда ссылки в интерфейсе нет вовсе.
         VITE_API_DOCS_PATH: ${VITE_API_DOCS_PATH:-/scalar/v1}
-    # web — отдельный профиль: `docker compose up` поднимает только postgres + api + worker
-    # (быстрая проверка API и воркера), а SPA — `--profile web`, чтобы не собирать node-образ
-    # на каждый прогон. Фронт (M3) уже есть: frontend/ + deploy/Dockerfile.web.
     profiles: ["web"]
     ports:
-      # 8081, а не 8080: 8080 на dev-стенде занят самим Api (прямой доступ для curl).
-      # Внутри контейнера nginx слушает 8080 непривилегированным пользователем nginx
-      # (deploy/nginx.container.conf, фактор X — тот же образ, что и в k8s).
       - "${WEB_BIND:-8081}:8080"
     depends_on:
       api:

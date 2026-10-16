@@ -1,12 +1,3 @@
-# k8s/base/20-postgres.yaml — backing service стенда (фактор IV).
-#
-# StatefulSet, а не Deployment: у БД должно быть устойчивое имя (postgres-0) и собственный
-# PersistentVolumeClaim. В k3d PVC обслуживается встроенным local-path provisioner'ом
-# (каталог на ноде), то есть данные переживают пересоздание пода, но не удаление кластера.
-#
-# ВАЖНО про PGDATA в postgres:18: путь монтирования — /var/lib/postgresql, а не .../data.
-# В 18+ данные лежат в подкаталоге с номером мажорной версии, и монтирование старого пути
-# роняет entrypoint (в compose это описано в deploy/docker-compose.yml).
 apiVersion: v1
 kind: Service
 metadata:
@@ -16,14 +7,13 @@ metadata:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/part-of: pingboard
 spec:
-  # Headless-сервис: клиенты обращаются к postgres.pingboard.svc (DNS отдаёт адрес пода).
   clusterIP: None
   selector:
     app.kubernetes.io/name: postgres
   ports:
     - name: postgres
       port: 5432
-      targetPort: postgres
+      targetPort: 5432
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -49,6 +39,7 @@ spec:
       containers:
         - name: postgres
           image: postgres:18-alpine
+          imagePullPolicy: IfNotPresent
           ports:
             - name: postgres
               containerPort: 5432
@@ -61,12 +52,9 @@ spec:
                 secretKeyRef:
                   name: pingboard-secrets
                   key: POSTGRES_PASSWORD
-            # PGDATA внутри смонтированного тома: /var/lib/postgresql/18/docker.
             - name: PGDATA
               value: /var/lib/postgresql/18/docker
           args:
-            # Стенд на 1-2 ГБ RAM: max_connections=100 — лишняя память на подключение,
-            # effective_cache_size говорит планировщику, на что он может рассчитывать.
             - -c
             - max_connections=50
             - -c
@@ -87,10 +75,6 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
           resources:
-            # Requests и limits вместе: при одном limit под получает QoS Burstable и может
-            # быть вытеснен первым при нехватке памяти на узле. На одноузловом стенде это
-            # означает, что жертвой станет именно БД, а выглядеть это будет как «сервис
-            # сам перезапустился». Requests гарантируют ей минимум, limits не дают съесть узел.
             requests:
               cpu: 50m
               memory: 192Mi
@@ -106,4 +90,4 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 2Gi
+            storage: 1Gi

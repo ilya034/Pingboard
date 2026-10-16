@@ -6,7 +6,7 @@ using Pingboard.Infrastructure.Persistence;
 namespace Pingboard.Infrastructure.Repositories;
 
 /// <summary>
-///     Репозитории наружу отдают сущности и готовые списки — никаких IQueryable (§13 PLAN.md).
+///     Репозитории наружу отдают сущности и готовые списки — никаких IQueryable (§13).
 /// </summary>
 public sealed class MonitorRepository(UptimeDbContext db) : IMonitorRepository
 {

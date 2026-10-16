@@ -7,7 +7,7 @@ namespace Pingboard.Api.Infrastructure;
 /// <summary>
 ///     Ответы схемы аутентификации: без этого 401/403 от JwtBearer приходят с пустым телом,
 ///     а весь остальной API отвечает RFC 7807 ProblemDetails. Единый формат ошибки —
-///     часть SRE-обвязки из §10 PLAN.md, и клиенту не приходится разбирать два разных.
+///     часть SRE-обвязки из §10, и клиенту не приходится разбирать два разных.
 /// </summary>
 internal static class JwtBearerViewEvents
 {

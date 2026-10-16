@@ -17,7 +17,7 @@ namespace Pingboard.Infrastructure;
 
 /// <summary>
 ///     Единственный публичный API Infrastructure-слоя: Api и Worker вызывают только его
-///     и не знают ни про EF Core, ни про Npgsql (правило из §13 PLAN.md).
+///     и не знают ни про EF Core, ни про Npgsql.
 /// </summary>
 public static class DependencyInjection
 {
@@ -91,10 +91,6 @@ public static class DependencyInjection
         return services;
     }
 
-    /// <summary>
-    ///     Миграции на старте (режим MVP из §9 PLAN.md). В M5 заменяется на migrate-bundle —
-    ///     тогда миграции становятся отдельным one-off процессом (фактор XII).
-    /// </summary>
     public static async Task MigrateDatabaseAsync(this IServiceProvider services, CancellationToken ct = default)
     {
         await using var scope = services.CreateAsyncScope();
@@ -105,7 +101,7 @@ public static class DependencyInjection
     /// <summary>
     ///     Сид демо-пользователя: учётка, которой можно войти на свежеподнятом стенде
     ///     (POST /api/auth/login). Владельцем запросов она не является — владелец берётся
-    ///     из claim sub access-токена (M4).
+    ///     из claim sub access-токена.
     /// </summary>
     public static async Task<Guid> SeedDefaultUserAsync(
         this IServiceProvider services,

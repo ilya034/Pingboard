@@ -5,7 +5,7 @@ namespace Pingboard.Api.Infrastructure;
 
 /// <summary>
 ///     Единый маппинг исключений в ответы RFC 7807 ProblemDetails.
-///     Тела ошибок структурные — это часть SRE-обвязки из §10 PLAN.md.
+///     Тела ошибок структурные — это часть SRE-обвязки из §10.
 /// </summary>
 public static class ErrorHandling
 {

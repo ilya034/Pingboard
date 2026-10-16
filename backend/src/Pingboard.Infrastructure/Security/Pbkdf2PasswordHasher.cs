@@ -5,10 +5,6 @@ namespace Pingboard.Infrastructure.Security;
 
 /// <summary>
 ///     Хеширование паролей средствами BCL (PBKDF2-HMAC-SHA256).
-///     В PLAN.md стоит BCrypt.Net-Next; пакета нет в оффлайн-фиде этой машины, поэтому
-///     каркас обходится встроенным PBKDF2 — порт IPasswordHasher от этого не меняется,
-///     замена реализации = замена класса в AddInfrastructure.
-///     Формат хеша совместим по духу с остальными: algorithm$iterations$salt$hash.
 /// </summary>
 public sealed class Pbkdf2PasswordHasher : IPasswordHasher
 {

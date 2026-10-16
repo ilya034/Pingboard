@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Pingboard.Domain.Entities;
-using Pingboard.Infrastructure.Persistence;
 
 namespace Pingboard.Infrastructure.Persistence.Configurations;
 

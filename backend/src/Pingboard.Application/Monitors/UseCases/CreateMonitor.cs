@@ -10,7 +10,7 @@ namespace Pingboard.Application.Monitors.UseCases;
 
 /// <summary>
 ///     Сценарии над мониторами: обычные классы с явными зависимостями.
-///     MediatR/CQRS-пайплайн сознательно не тянем (см. §3 PLAN.md) — на MVP это лишняя церемония.
+///     MediatR/CQRS-пайплайн сознательно не тянем (см. §3) — на MVP это лишняя церемония.
 ///     Каждый сценарий регистрируется в DI как scoped (см. DependencyInjection.cs).
 /// </summary>
 public sealed class CreateMonitor(
