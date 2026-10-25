@@ -20,4 +20,10 @@ public sealed class WorkerOptions
     ///     Пустое значение отключает запись пульса.
     /// </summary>
     public string HeartbeatPath { get; set; } = Path.Combine(Path.GetTempPath(), "pingboard-worker-heartbeat");
+
+    /// <summary>
+    ///     TCP-порт встроенного HTTP-сервера метрик Prometheus (/metrics).
+    ///     Значение 0 отключает прослушивание порта.
+    /// </summary>
+    public int MetricsPort { get; set; } = 9100;
 }

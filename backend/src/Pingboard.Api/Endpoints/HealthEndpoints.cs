@@ -1,9 +1,10 @@
 using Pingboard.Application.Abstractions;
+using Pingboard.Application.Observability;
 
 namespace Pingboard.Api.Endpoints;
 
 /// <summary>
-/// Регистрация конечных точек проверки состояния приложения (liveness /healthz и readiness /readyz).
+/// Регистрация конечных точек проверки состояния приложения (liveness /healthz, readiness /readyz и метрики /metrics).
 /// Проверка доступности БД осуществляется через абстракцию <see cref="IDatabaseHealthProbe" />.
 /// </summary>
 public static class HealthEndpoints
@@ -48,9 +49,13 @@ public static class HealthEndpoints
             .WithTags("ops")
             .WithSummary("Readiness: SELECT 1 Postgres");
 
-        // TODO: /metrics — prometheus-net.AspNetCore. Пакет не в оффлайн-фиде,
-        // поэтому в каркасе маршрута нет;
-        //   app.MapMetrics();  + services.AddSingleton<IMetricsRoot>(Metrics.Default);
+        app.MapGet("/metrics", (PrometheusMetricsExporter exporter) =>
+                Results.Text(exporter.Scrape(), PrometheusMetricsExporter.ContentType))
+            .WithName("Metrics")
+            .AllowAnonymous()
+            .WithTags("ops")
+            .WithSummary("Prometheus metrics (runtime, ASP.NET Core and business metrics)");
+
         return app;
     }
     

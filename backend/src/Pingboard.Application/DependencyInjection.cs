@@ -4,6 +4,7 @@ using Pingboard.Application.Abstractions;
 using Pingboard.Application.Auth;
 using Pingboard.Application.Composition;
 using Pingboard.Application.Monitors.UseCases;
+using Pingboard.Application.Observability;
 using Pingboard.Application.Probing;
 
 namespace Pingboard.Application;
@@ -15,6 +16,9 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
+        services.TryAddSingleton(PrometheusMetricsExporter.Default);
+        services.TryAddSingleton<IPingboardMetrics, PingboardMetrics>();
+
         services.AddScoped<CreateMonitor>();
         services.AddScoped<ListMonitors>();
         services.AddScoped<GetMonitor>();
