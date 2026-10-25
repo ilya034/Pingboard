@@ -12,7 +12,7 @@ server:
     size: 2Gi
 
   service:
-    type: ClusterIP
+    type: LoadBalancer
     servicePort: 8428
 
   resources:

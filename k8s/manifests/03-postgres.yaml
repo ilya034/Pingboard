@@ -14,6 +14,9 @@ spec:
     - name: postgres
       port: 5432
       targetPort: 5432
+    - name: metrics
+      port: 9187
+      targetPort: 9187
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -34,6 +37,10 @@ spec:
       labels:
         app.kubernetes.io/name: postgres
         app.kubernetes.io/part-of: pingboard
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: "/metrics"
     spec:
       terminationGracePeriodSeconds: 60
       containers:
@@ -83,6 +90,39 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql
+        - name: postgres-exporter
+          image: prometheuscommunity/postgres-exporter:v0.16.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9187
+          env:
+            - name: DATA_SOURCE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: pingboard-secrets
+                  key: POSTGRES_EXPORTER_DSN
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
   volumeClaimTemplates:
     - metadata:
         name: data

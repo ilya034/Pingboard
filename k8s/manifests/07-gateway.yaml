@@ -47,6 +47,9 @@ spec:
         - path:
             type: Exact
             value: /readyz
+        - path:
+            type: Exact
+            value: /metrics
       backendRefs:
         - name: api
           port: 8080

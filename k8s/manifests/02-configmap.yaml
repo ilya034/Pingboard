@@ -28,6 +28,7 @@ data:
   Worker__BatchSize: "100"
   Worker__HeartbeatPath: "/tmp/pingboard-worker-heartbeat"
   Worker__HeartbeatMaxAgeSeconds: "120"
+  Worker__MetricsPort: "9100"
   Monitors__UptimeWindowHours: "24"
   Monitors__UptimeBarSegments: "24"
   Monitors__DashboardHistoryPerMonitor: "500"

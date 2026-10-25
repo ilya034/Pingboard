@@ -7,10 +7,10 @@ fullnameOverride: vm-single-victoria-metrics-agent
 replicaCount: 1
 mode: deployment
 
-# Включаем ClusterIP-сервис vm-single-victoria-metrics-agent:8429
+# Включаем LoadBalancer-сервис vm-single-victoria-metrics-agent:8429 (для работы через minikube tunnel и port-forward)
 service:
   enabled: true
-  type: ClusterIP
+  type: LoadBalancer
   servicePort: 8429
 
 rbac:
