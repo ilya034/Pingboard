@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Pingboard.Application.Abstractions;
 using Pingboard.Application.Auth.Dtos;
 using Pingboard.Application.Common;
+using Pingboard.Application.Observability;
 using Pingboard.Application.Validation;
 using Pingboard.Domain.Entities;
 
@@ -14,7 +15,8 @@ public sealed class LoginUser(
     IUserRepository users,
     IPasswordHasher passwordHasher,
     ITokenService tokenService,
-    ILogger<LoginUser> logger)
+    ILogger<LoginUser> logger,
+    IPingboardMetrics? metrics = null)
 {
     public async Task<AuthTokenDto> ExecuteAsync(LoginRequest request, CancellationToken ct)
     {
@@ -27,12 +29,18 @@ public sealed class LoginUser(
         // не найден (используется фиктивный хеш аналогичной сложности для предотвращения timing attacks).
         var passwordMatches = passwordHasher.Verify(request.Password!, user?.PasswordHash ?? passwordHasher.DummyHash);
 
+        var telemetry = metrics ?? PingboardMetrics.Default;
+
         if (user is null || !passwordMatches)
         {
+            telemetry.RecordLoginAttempt(success: false);
+
             // В логе нет персональных данных (email и пароля).
             logger.LogWarning("Failed login attempt");
             throw new InvalidCredentialsException("Invalid email or password.");
         }
+
+        telemetry.RecordLoginAttempt(success: true);
 
         var token = tokenService.Issue(user.Id);
 

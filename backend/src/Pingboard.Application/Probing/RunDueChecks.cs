@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Pingboard.Application.Abstractions;
+using Pingboard.Application.Observability;
 using Pingboard.Application.Probing.Options;
 using Pingboard.Domain.Common;
 using Pingboard.Domain.Entities;
@@ -19,7 +20,8 @@ public sealed class RunDueChecks(
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     IOptions<DueCheckOptions> options,
-    ILogger<RunDueChecks> logger)
+    ILogger<RunDueChecks> logger,
+    IPingboardMetrics? metrics = null)
 {
     public async Task<int> ExecuteAsync(CancellationToken ct)
     {
@@ -70,11 +72,15 @@ public sealed class RunDueChecks(
             });
 
         var batch = new List<CheckResult>(results.Count);
+        var telemetry = metrics ?? PingboardMetrics.Default;
 
         foreach (var (monitor, outcome, checkedAt) in results)
         {
             batch.Add(CheckResult.FromProbe(monitor.Id, checkedAt, outcome));
             monitor.RecordCheck(outcome, checkedAt);
+
+            var durationSeconds = (outcome.LatencyMs ?? 0) / 1000.0;
+            telemetry.RecordProbeCheck(outcome.Ok, durationSeconds);
         }
 
         // Одна транзакция на батч: либо записаны все результаты итерации, либо ни один.

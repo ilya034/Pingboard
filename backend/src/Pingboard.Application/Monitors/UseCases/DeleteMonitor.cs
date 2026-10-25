@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Pingboard.Application.Abstractions;
+using Pingboard.Application.Observability;
 
 namespace Pingboard.Application.Monitors.UseCases;
 
@@ -10,7 +11,8 @@ public sealed class DeleteMonitor(
     IMonitorRepository monitors,
     IUnitOfWork unitOfWork,
     ICurrentUser currentUser,
-    ILogger<DeleteMonitor>? logger = null)
+    ILogger<DeleteMonitor>? logger = null,
+    IPingboardMetrics? metrics = null)
 {
     public async Task ExecuteAsync(Guid id, CancellationToken ct)
     {
@@ -18,6 +20,7 @@ public sealed class DeleteMonitor(
         monitors.Remove(monitor);
         await unitOfWork.SaveChangesAsync(ct);
 
+        (metrics ?? PingboardMetrics.Default).RecordMonitorDeleted();
         logger?.LogInformation("Monitor deleted {MonitorId}", id);
     }
 }

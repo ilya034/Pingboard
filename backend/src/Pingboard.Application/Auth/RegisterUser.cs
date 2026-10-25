@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Pingboard.Application.Abstractions;
 using Pingboard.Application.Auth.Dtos;
 using Pingboard.Application.Common;
+using Pingboard.Application.Observability;
 using Pingboard.Application.Validation;
 using Pingboard.Domain.Entities;
 
@@ -16,7 +17,8 @@ public sealed class RegisterUser(
     ITokenService tokenService,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
-    ILogger<RegisterUser> logger)
+    ILogger<RegisterUser> logger,
+    IPingboardMetrics? metrics = null)
 {
     public async Task<AuthTokenDto> ExecuteAsync(RegisterRequest request, CancellationToken ct)
     {
@@ -36,6 +38,7 @@ public sealed class RegisterUser(
         await users.AddAsync(user, ct);
         await unitOfWork.SaveChangesAsync(ct);
 
+        (metrics ?? PingboardMetrics.Default).RecordUserRegistered();
         logger.LogInformation("User registered {UserId}", user.Id);
 
         // Конфликты параллельной регистрации обрабатываются ограничением уникальности таблицы БД.

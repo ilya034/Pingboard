@@ -114,6 +114,10 @@ if (seedOnStart)
         app.Logger.LogWarning(ex, "Seed demo user not completed");
     }
 
+// Инициализация синглтона бизнес-метрик при старте приложения.
+_ = app.Services.GetRequiredService<IPingboardMetrics>();
+
+app.UseHttpMetrics();
 app.UseApiErrorHandling();
 
 // Первым: без этого rate limiter и логи видят адрес прокси, а не клиента.

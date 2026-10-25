@@ -2,6 +2,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Pingboard.Application.Abstractions;
+using Pingboard.Application.Observability;
 using Pingboard.Application.Probing;
 using Pingboard.Application.Probing.Options;
 using Pingboard.Worker.Options;
@@ -16,7 +18,8 @@ public sealed class DueCheckWorker(
     IServiceScopeFactory scopeFactory,
     IOptions<WorkerOptions> workerOptions,
     IOptions<DueCheckOptions> checkOptions,
-    ILogger<DueCheckWorker> logger) : BackgroundService
+    ILogger<DueCheckWorker> logger,
+    IPingboardMetrics? metrics = null) : BackgroundService
 {
     /// <summary>О недоступном пульсе предупреждаем один раз, а не каждые 5 секунд.</summary>
     private bool _heartbeatUnavailableLogged;
@@ -24,6 +27,7 @@ public sealed class DueCheckWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var tick = TimeSpan.FromSeconds(workerOptions.Value.TickSeconds);
+        var telemetry = metrics ?? PingboardMetrics.Default;
 
         // Логируем ровно те значения, которыми пользуется сценарий: батч и параллелизм
         // берутся из DueCheckOptions, а не из второго класса-двойника с теми же полями.
@@ -38,6 +42,7 @@ public sealed class DueCheckWorker(
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var scenario = scope.ServiceProvider.GetRequiredService<RunDueChecks>();
                 await scenario.ExecuteAsync(stoppingToken);
+                telemetry.RecordWorkerIteration(success: true);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -45,6 +50,7 @@ public sealed class DueCheckWorker(
             }
             catch (Exception ex)
             {
+                telemetry.RecordWorkerIteration(success: false);
                 // Ошибка отдельной итерации не прерывает работу цикла фоновой проверки.
                 logger.LogWarning(ex, "Check iteration failed");
             }

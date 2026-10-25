@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Pingboard.Application.Abstractions;
+using Pingboard.Application.Observability;
 using Pingboard.Application.Validation;
 using Pingboard.Application.Monitors.Dtos;
 using Pingboard.Application.Monitors.Options;
@@ -18,7 +19,8 @@ public sealed class CreateMonitor(
     ICurrentUser currentUser,
     TimeProvider timeProvider,
     IOptions<MonitorsOptions> options,
-    ILogger<CreateMonitor>? logger = null)
+    ILogger<CreateMonitor>? logger = null,
+    IPingboardMetrics? metrics = null)
 {
     public async Task<MonitorDto> ExecuteAsync(CreateMonitorRequest request, CancellationToken ct)
     {
@@ -39,6 +41,7 @@ public sealed class CreateMonitor(
         await monitors.AddAsync(monitor, ct);
         await unitOfWork.SaveChangesAsync(ct);
 
+        (metrics ?? PingboardMetrics.Default).RecordMonitorCreated();
         logger?.LogInformation("Monitor created {MonitorId} by user {UserId}", monitor.Id, currentUser.UserId);
 
         return MonitorMapper.ToDto(monitor, BuildEmptySummary(now));
