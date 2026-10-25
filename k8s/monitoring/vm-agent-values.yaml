@@ -1,0 +1,123 @@
+# Конфигурация Helm-чарта vm/victoria-metrics-agent (vmagent)
+# Установка:
+#   helm upgrade --install vm-agent vm/victoria-metrics-agent -f k8s/monitoring/vm-agent-values.yaml -n monitoring --create-namespace
+
+fullnameOverride: vm-single-victoria-metrics-agent
+
+replicaCount: 1
+mode: deployment
+
+# Включаем ClusterIP-сервис vm-single-victoria-metrics-agent:8429
+service:
+  enabled: true
+  type: ClusterIP
+  servicePort: 8429
+
+rbac:
+  create: true
+  namespaced: false
+
+serviceAccount:
+  create: true
+
+# Отправка собранных метрик в VictoriaMetrics Single Server
+remoteWrite:
+  - url: http://vm-single-victoria-metrics-single-server.monitoring.svc.cluster.local:8428/api/v1/write
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+# Конфигурация Service Discovery (автоматический сбор метрик по аннотациям prometheus.io/*)
+config:
+  global:
+    scrape_interval: 15s
+
+  scrape_configs:
+    # Самомониторинг vmagent и VictoriaMetrics Single
+    - job_name: victoriametrics
+      static_configs:
+        - targets:
+            - localhost:8429
+            - vm-single-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
+
+    # Сбор метрик с подов Kubernetes по аннотациям:
+    #   prometheus.io/scrape: "true"
+    #   prometheus.io/port: "<port>"
+    #   prometheus.io/path: "/metrics"
+    - job_name: kubernetes-pods
+      kubernetes_sd_configs:
+        - role: pod
+      relabel_configs:
+        - action: drop
+          source_labels: [__meta_kubernetes_pod_container_init]
+          regex: true
+        - action: keep_if_equal
+          source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port, __meta_kubernetes_pod_container_port_number]
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+          target_label: __address__
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_pod_name]
+          target_label: pod
+        - source_labels: [__meta_kubernetes_pod_container_name]
+          target_label: container
+        - source_labels: [__meta_kubernetes_namespace]
+          target_label: namespace
+        - source_labels: [__meta_kubernetes_pod_node_name]
+          action: replace
+          target_label: node
+
+    # Сбор метрик сервисных эндпоинтов с аннотацией prometheus.io/scrape: "true"
+    - job_name: kubernetes-service-endpoints
+      kubernetes_sd_configs:
+        - role: endpoints
+      relabel_configs:
+        - action: drop
+          source_labels: [__meta_kubernetes_pod_container_init]
+          regex: true
+        - action: keep_if_equal
+          source_labels: [__meta_kubernetes_service_annotation_prometheus_io_port, __meta_kubernetes_pod_container_port_number]
+        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+          action: replace
+          target_label: __scheme__
+          regex: (https?)
+        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+          action: replace
+          target_label: __address__
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+        - action: labelmap
+          regex: __meta_kubernetes_service_label_(.+)
+        - source_labels: [__meta_kubernetes_pod_name]
+          target_label: pod
+        - source_labels: [__meta_kubernetes_pod_container_name]
+          target_label: container
+        - source_labels: [__meta_kubernetes_namespace]
+          target_label: namespace
+        - source_labels: [__meta_kubernetes_service_name]
+          target_label: service
+        - source_labels: [__meta_kubernetes_pod_node_name]
+          action: replace
+          target_label: node

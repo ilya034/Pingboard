@@ -1,0 +1,26 @@
+# Конфигурация Helm-чарта vm/victoria-metrics-single
+# Установка:
+#   helm upgrade --install vm-single vm/victoria-metrics-single -f k8s/monitoring/vm-single-values.yaml -n monitoring --create-namespace
+
+server:
+  enabled: true
+  replicaCount: 1
+  retentionPeriod: 7d
+
+  persistentVolume:
+    enabled: true
+    size: 2Gi
+
+  service:
+    type: ClusterIP
+    servicePort: 8428
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  scrape:
+    enabled: false
