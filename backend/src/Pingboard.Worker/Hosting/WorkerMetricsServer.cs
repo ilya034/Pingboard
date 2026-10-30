@@ -19,7 +19,8 @@ public sealed class WorkerMetricsServer(
     PrometheusMetricsExporter exporter,
     IPingboardMetrics metrics,
     IOptions<WorkerOptions> options,
-    ILogger<WorkerMetricsServer> logger) : BackgroundService
+    ILogger<WorkerMetricsServer> logger,
+    WorkerChaosState? chaosState = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -80,6 +81,7 @@ public sealed class WorkerMetricsServer(
                 }
 
                 var parts = requestLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var method = parts.Length >= 1 ? parts[0] : "GET";
                 var path = parts.Length >= 2 ? parts[1] : "/";
 
                 if (path.StartsWith("/metrics", StringComparison.Ordinal))
@@ -90,6 +92,23 @@ public sealed class WorkerMetricsServer(
                 else if (path.StartsWith("/health", StringComparison.Ordinal))
                 {
                     await WriteResponseAsync(stream, "200 OK", "application/json; charset=utf-8", "{\"status\":\"ok\"}", ct);
+                }
+                else if (path.StartsWith("/chaos", StringComparison.Ordinal) && chaosState is not null)
+                {
+                    if (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) &&
+                        TryParseFailureRateQuery(path, out var requestedRate))
+                    {
+                        chaosState.SetFailureRate(requestedRate);
+                        logger.LogWarning("Worker chaos failureRate updated to {FailureRate}", chaosState.FailureRate);
+                    }
+
+                    var current = chaosState.FailureRate.ToString("G", CultureInfo.InvariantCulture);
+                    await WriteResponseAsync(
+                        stream,
+                        "200 OK",
+                        "application/json; charset=utf-8",
+                        $"{{\"failureRate\":{current}}}",
+                        ct);
                 }
                 else
                 {
@@ -119,5 +138,27 @@ public sealed class WorkerMetricsServer(
         await stream.WriteAsync(headerBytes, ct);
         await stream.WriteAsync(bodyBytes, ct);
         await stream.FlushAsync(ct);
+    }
+
+    private static bool TryParseFailureRateQuery(string rawPathAndQuery, out double rate)
+    {
+        rate = 0.0;
+        var qIndex = rawPathAndQuery.IndexOf('?', StringComparison.Ordinal);
+        if (qIndex < 0 || qIndex + 1 >= rawPathAndQuery.Length)
+            return false;
+
+        var query = rawPathAndQuery[(qIndex + 1)..];
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = pair.Split('=', 2);
+            if (kv.Length == 2 &&
+                string.Equals(kv[0], "failureRate", StringComparison.OrdinalIgnoreCase) &&
+                double.TryParse(Uri.UnescapeDataString(kv[1]), NumberStyles.Float, CultureInfo.InvariantCulture, out rate))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

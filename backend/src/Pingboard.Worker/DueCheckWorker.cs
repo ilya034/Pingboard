@@ -6,6 +6,7 @@ using Pingboard.Application.Abstractions;
 using Pingboard.Application.Observability;
 using Pingboard.Application.Probing;
 using Pingboard.Application.Probing.Options;
+using Pingboard.Worker.Hosting;
 using Pingboard.Worker.Options;
 
 namespace Pingboard.Worker;
@@ -19,7 +20,8 @@ public sealed class DueCheckWorker(
     IOptions<WorkerOptions> workerOptions,
     IOptions<DueCheckOptions> checkOptions,
     ILogger<DueCheckWorker> logger,
-    IPingboardMetrics? metrics = null) : BackgroundService
+    IPingboardMetrics? metrics = null,
+    WorkerChaosState? chaosState = null) : BackgroundService
 {
     /// <summary>О недоступном пульсе предупреждаем один раз, а не каждые 5 секунд.</summary>
     private bool _heartbeatUnavailableLogged;
@@ -38,6 +40,10 @@ public sealed class DueCheckWorker(
         {
             try
             {
+                var failureRate = chaosState?.FailureRate ?? 0.0;
+                if (failureRate > 0.0 && Random.Shared.NextDouble() < failureRate)
+                    throw new InvalidOperationException("Simulated worker iteration failure (chaos simulation).");
+
                 // DbContext scoped на итерацию: никаких долгоживущих контекстов.
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var scenario = scope.ServiceProvider.GetRequiredService<RunDueChecks>();

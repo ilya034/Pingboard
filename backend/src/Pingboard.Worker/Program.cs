@@ -24,6 +24,7 @@ await using var host = WorkerHost.Build(
             .Validate(o => o.TickSeconds > 0, "Worker__TickSeconds must be greater than zero")
             .ValidateOnStart();
 
+        services.AddSingleton<WorkerChaosState>();
         services.AddSingleton<WorkerMetricsServer>();
         services.AddSingleton<DueCheckWorker>();
     },

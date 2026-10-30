@@ -106,6 +106,12 @@ public sealed class PrometheusMetricsExporter
         family.Add(labels, delta);
     }
 
+    public void SetGauge(string name, string help, string labels, long value)
+    {
+        var family = _gauges.GetOrAdd(name, static (_, h) => new GaugeFamily(h), help);
+        family.Set(labels, value);
+    }
+
     public void ObserveHistogram(string name, string help, string labels, double value)
     {
         var family = _histograms.GetOrAdd(name, static (_, h) => new HistogramFamily(h, DefaultBuckets), help);
@@ -298,6 +304,12 @@ public sealed class PrometheusMetricsExporter
             var cell = _series.GetOrAdd(labels, static _ => new GaugeCell());
             if (delta != 0)
                 Interlocked.Add(ref cell.Value, delta);
+        }
+
+        public void Set(string labels, long value)
+        {
+            var cell = _series.GetOrAdd(labels, static _ => new GaugeCell());
+            Interlocked.Exchange(ref cell.Value, value);
         }
 
         public void WriteTo(StringBuilder sb, string name)

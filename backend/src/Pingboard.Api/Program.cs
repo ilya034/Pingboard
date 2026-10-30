@@ -38,6 +38,11 @@ builder.Logging.AddJsonConsole(options =>
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
+var chaosEnabled = builder.Environment.IsDevelopment()
+                   || builder.Configuration.GetValue("Chaos:Enabled", false);
+if (chaosEnabled)
+    builder.Services.AddSingleton<ChaosSimulationState>();
+
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, JwtUserIdProvider>();
 
@@ -116,9 +121,13 @@ if (seedOnStart)
 
 // Инициализация синглтона бизнес-метрик при старте приложения.
 _ = app.Services.GetRequiredService<IPingboardMetrics>();
+_ = app.Services.GetService<ChaosSimulationState>();
 
 app.UseHttpMetrics();
 app.UseApiErrorHandling();
+
+if (chaosEnabled)
+    app.UseChaosSimulation();
 
 // Первым: без этого rate limiter и логи видят адрес прокси, а не клиента.
 if (forwardedHeadersEnabled)
@@ -137,6 +146,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi(); // /openapi/v1.json
     app.MapScalarApiReference(); // /scalar/v1 - UI для проверки CRUD до готового фронта
 }
+
+if (chaosEnabled)
+    app.MapChaosEndpoints();
 
 app.MapHealthEndpoints();
 app.MapAuthEndpoints();

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Синтетический blackbox-пробер для непрерывной проверки доступности и расчёта SLI/SLO/SLA. -->
+    <PropertyGroup>
+        <RootNamespace>Pingboard.Prober</RootNamespace>
+        <AssemblyName>Pingboard.Prober</AssemblyName>
+        <OutputType>Exe</OutputType>
+    </PropertyGroup>
+
+</Project>
