@@ -8,6 +8,7 @@ COPY backend/src/Pingboard.Application/*.csproj backend/src/Pingboard.Applicatio
 COPY backend/src/Pingboard.Infrastructure/*.csproj backend/src/Pingboard.Infrastructure/
 COPY backend/src/Pingboard.Api/*.csproj backend/src/Pingboard.Api/
 COPY backend/src/Pingboard.Worker/*.csproj backend/src/Pingboard.Worker/
+COPY backend/src/Pingboard.Prober/*.csproj backend/src/Pingboard.Prober/
 
 
 COPY backend/src/Pingboard.Domain/packages.lock.json backend/src/Pingboard.Domain/
@@ -15,13 +16,16 @@ COPY backend/src/Pingboard.Application/packages.lock.json backend/src/Pingboard.
 COPY backend/src/Pingboard.Infrastructure/packages.lock.json backend/src/Pingboard.Infrastructure/
 COPY backend/src/Pingboard.Api/packages.lock.json backend/src/Pingboard.Api/
 COPY backend/src/Pingboard.Worker/packages.lock.json backend/src/Pingboard.Worker/
+COPY backend/src/Pingboard.Prober/packages.lock.json backend/src/Pingboard.Prober/
 
 RUN dotnet restore backend/src/Pingboard.Api/Pingboard.Api.csproj --source https://api.nuget.org/v3/index.json --locked-mode \
-    && dotnet restore backend/src/Pingboard.Worker/Pingboard.Worker.csproj --source https://api.nuget.org/v3/index.json --locked-mode
+    && dotnet restore backend/src/Pingboard.Worker/Pingboard.Worker.csproj --source https://api.nuget.org/v3/index.json --locked-mode \
+    && dotnet restore backend/src/Pingboard.Prober/Pingboard.Prober.csproj --source https://api.nuget.org/v3/index.json --locked-mode
 
 COPY backend/ backend/
 RUN dotnet publish backend/src/Pingboard.Api/Pingboard.Api.csproj -c Release -o /app --no-restore
 RUN dotnet publish backend/src/Pingboard.Worker/Pingboard.Worker.csproj -c Release -o /app/worker --no-restore
+RUN dotnet publish backend/src/Pingboard.Prober/Pingboard.Prober.csproj -c Release -o /app/prober --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
@@ -40,7 +44,7 @@ COPY --from=build /app ./
 
 USER $APP_UID
 
-EXPOSE 8080 9100
+EXPOSE 8080 9100 9101
 ENV ASPNETCORE_URLS=http://+:8080
 
 CMD ["dotnet", "Pingboard.Api.dll"]
