@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmalert
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/part-of: pingboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vmalert
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vmalert
+        app.kubernetes.io/part-of: pingboard
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: vmalert
+          image: victoriametrics/vmalert:v1.155.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - -rule=/etc/vmalert/rules/service-rules.yaml
+            - -rule=/etc/vmalert/rules/runtime-rules.yaml
+            - -datasource.url=http://vm-single-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
+            - -remoteRead.url=http://vm-single-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
+            - -remoteWrite.url=http://vm-single-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
+            - -notifier.url=http://alertmanager.monitoring.svc.cluster.local:9093
+            - -evaluationInterval=15s
+            - -external.url=http://vm-single-victoria-metrics-single-server.monitoring.svc.cluster.local:8428/vmui
+            - -external.alert.source=explore?g0.expr={{.Expr|queryEscape}}&g0.tab=0&g0.range_input=30m
+            - -httpListenAddr=:8080
+            - -loggerLevel=INFO
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: rules
+              mountPath: /etc/vmalert/rules
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: rules
+          projected:
+            sources:
+              - configMap:
+                  name: vmalert-rules-service
+                  items:
+                    - key: service-rules.yaml
+                      path: service-rules.yaml
+              - configMap:
+                  name: vmalert-rules-runtime
+                  items:
+                    - key: runtime-rules.yaml
+                      path: runtime-rules.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmalert
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/part-of: pingboard
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: vmalert
+  ports:
+    - name: http
+      port: 8880
+      targetPort: http

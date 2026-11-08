@@ -1,0 +1,220 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inbox-app
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: inbox
+    app.kubernetes.io/part-of: pingboard
+data:
+  server.py: |
+    import html
+    import json
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    LOCK = threading.Lock()
+    EVENTS = []
+    MAX_EVENTS = 100
+
+    PAGE = """<!doctype html>
+    <html lang="ru"><head><meta charset="utf-8">
+    <meta http-equiv="refresh" content="5">
+    <title>Pingboard · Alert Inbox</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body { margin:0; padding:28px 36px; background:#0f1117; color:#e6e8ee;
+             font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif; }
+      h1 { margin:0 0 4px; font-size:22px; letter-spacing:.2px; }
+      .sub { color:#8b93a7; font-size:13px; margin-bottom:18px; }
+      .stats { display:flex; gap:12px; margin-bottom:22px; }
+      .stat { background:#171a23; border:1px solid #242938; border-radius:10px; padding:10px 18px; }
+      .stat b { font-size:22px; display:block; line-height:1.1; }
+      .stat span { color:#8b93a7; font-size:12px; text-transform:uppercase; letter-spacing:.6px; }
+      .cards { display:grid; grid-template-columns:1fr; gap:12px; max-width:1180px; }
+      .card { background:#171a23; border:1px solid #242938; border-left:5px solid #6b7280;
+              border-radius:10px; padding:14px 18px; }
+      .card.firing.sev-critical { border-left-color:#ef4444; }
+      .card.firing.sev-warning  { border-left-color:#f59e0b; }
+      .card.firing.sev-info     { border-left-color:#3b82f6; }
+      .card.resolved            { border-left-color:#22c55e; opacity:.92; }
+      .row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+      .badge { font-size:11px; font-weight:700; letter-spacing:.8px; padding:3px 8px;
+               border-radius:6px; background:#3f1d1d; color:#fca5a5; }
+      .resolved .badge { background:#14321f; color:#86efac; }
+      .name { font-size:15px; font-weight:600; }
+      .sev { margin-left:auto; font-size:11px; color:#8b93a7; text-transform:uppercase;
+             letter-spacing:.8px; }
+      .summary { font-size:14px; margin-bottom:6px; }
+      .desc { font-size:12px; color:#9aa3b8; line-height:1.45; margin-bottom:8px; }
+      .meta { font-size:11px; color:#6b7385; font-family:Consolas,monospace; }
+      .empty { color:#8b93a7; font-size:14px; }
+    </style></head><body>
+    <h1>Pingboard · Alert Inbox</h1>
+    <div class="sub">Webhook-приёмник Alertmanager · автообновление каждые 5 секунд</div>
+    <div class="stats">
+      <div class="stat"><b>%TOTAL%</b><span>уведомлений</span></div>
+      <div class="stat"><b>%FIRING%</b><span>firing</span></div>
+      <div class="stat"><b>%RESOLVED%</b><span>resolved</span></div>
+    </div>
+    <div class="cards">%CARDS%</div>
+    </body></html>"""
+
+
+    def esc(value):
+        return html.escape(str(value), quote=True)
+
+
+    def fmt(ts):
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+
+
+    def render():
+        with LOCK:
+            events = list(EVENTS)
+
+        firing = sum(1 for e in events if e["payload"].get("status") == "firing")
+        resolved = len(events) - firing
+        cards = []
+
+        for event in events:
+            payload = event["payload"]
+            status = payload.get("status", "unknown")
+            css = "resolved" if status == "resolved" else "firing"
+            received = esc(fmt(event["received_at"]))
+            for alert in payload.get("alerts", []):
+                labels = alert.get("labels") or {}
+                ann = alert.get("annotations") or {}
+                name = esc(labels.get("alertname", "?"))
+                sev = esc(labels.get("severity", "-"))
+                summary = esc(ann.get("summary", ""))
+                desc = esc(ann.get("description", ""))
+                comp = esc(labels.get("component", "-"))
+                slo = esc(labels.get("slo", "-"))
+                starts = esc(alert.get("startsAt", ""))
+                cards.append(
+                    '<article class="card %s sev-%s">' % (css, sev)
+                    + '<div class="row"><span class="badge">%s</span>' % esc(status.upper())
+                    + '<span class="name">%s</span><span class="sev">%s</span></div>' % (name, sev)
+                    + '<div class="summary">%s</div>' % summary
+                    + '<div class="desc">%s</div>' % desc
+                    + '<div class="meta">component=%s · slo=%s · startsAt=%s · received %s</div>'
+                      % (comp, slo, starts, received)
+                    + '</article>'
+                )
+
+        if not cards:
+            cards.append('<div class="empty">Уведомлений пока нет — алерты не срабатывали.</div>')
+
+        return (PAGE.replace("%TOTAL%", str(len(cards)))
+                    .replace("%FIRING%", str(firing))
+                    .replace("%RESOLVED%", str(resolved))
+                    .replace("%CARDS%", "".join(cards)))
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def _send(self, code, body, ctype):
+            data = body.encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            path = self.path.split("?")[0]
+            if path == "/healthz":
+                return self._send(200, "ok", "text/plain; charset=utf-8")
+            if path == "/alerts.json":
+                with LOCK:
+                    return self._send(200, json.dumps(EVENTS, ensure_ascii=False), "application/json")
+            if path == "/":
+                return self._send(200, render(), "text/html; charset=utf-8")
+            self._send(404, "not found", "text/plain; charset=utf-8")
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except Exception:
+                payload = {"status": "unknown", "alerts": [], "raw": raw.decode("utf-8", "replace")}
+            with LOCK:
+                EVENTS.insert(0, {"received_at": time.time(), "payload": payload})
+                del EVENTS[MAX_EVENTS:]
+            self._send(200, '{"status":"ok"}', "application/json")
+
+        def log_message(self, *args):
+            pass
+
+
+    if __name__ == "__main__":
+        print("inbox listening on :8080", flush=True)
+        ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inbox
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: inbox
+    app.kubernetes.io/part-of: pingboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: inbox
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: inbox
+        app.kubernetes.io/part-of: pingboard
+    spec:
+      containers:
+        - name: inbox
+          image: python:3.12-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/app/server.py"]
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: app
+          configMap:
+            name: inbox-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inbox
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: inbox
+    app.kubernetes.io/part-of: pingboard
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: inbox
+  ports:
+    - name: http
+      port: 8088
+      targetPort: http

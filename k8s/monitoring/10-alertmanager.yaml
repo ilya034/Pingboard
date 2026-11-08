@@ -1,0 +1,238 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: pingboard
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    templates:
+      - /etc/alertmanager/templates/*.tmpl
+
+    route:
+      receiver: inbox-and-telegram
+      group_by: [alertname, severity, component]
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      routes:
+        - matchers: ['severity="critical"']
+          receiver: critical-notifier
+          group_wait: 5s
+          group_interval: 1m
+          repeat_interval: 30m
+        - matchers: ['severity="warning"']
+          receiver: warning-notifier
+          group_wait: 30s
+          group_interval: 2m
+          repeat_interval: 4h
+        - matchers: ['severity="info"']
+          receiver: info-notifier
+          group_wait: 1m
+          repeat_interval: 24h
+
+    inhibit_rules:
+      - source_matchers: ['severity="critical"']
+        target_matchers: ['severity="warning"']
+        equal: [service, component]
+      - source_matchers: ['alertname="PingboardApiRestarted"']
+        target_matchers: ['severity=~"critical|warning"']
+        equal: [component]
+
+    receivers:
+      - name: inbox-and-telegram
+        webhook_configs:
+          - url: http://inbox.monitoring.svc.cluster.local:8088/alert
+            send_resolved: true
+            max_alerts: 0
+        telegram_configs:
+          - bot_token: "__TELEGRAM_BOT_TOKEN__"
+            chat_id: __TELEGRAM_CHAT_ID__
+            parse_mode: HTML
+            send_resolved: true
+            message: '{{ template "pingboard.telegram" . }}'
+
+      - name: critical-notifier
+        webhook_configs:
+          - url: http://inbox.monitoring.svc.cluster.local:8088/alert
+            send_resolved: true
+            max_alerts: 0
+        telegram_configs:
+          - bot_token: "__TELEGRAM_BOT_TOKEN__"
+            chat_id: __TELEGRAM_CHAT_ID__
+            parse_mode: HTML
+            send_resolved: true
+            message: '{{ template "pingboard.telegram" . }}'
+
+      - name: warning-notifier
+        webhook_configs:
+          - url: http://inbox.monitoring.svc.cluster.local:8088/alert
+            send_resolved: true
+            max_alerts: 0
+        telegram_configs:
+          - bot_token: "__TELEGRAM_BOT_TOKEN__"
+            chat_id: __TELEGRAM_CHAT_ID__
+            parse_mode: HTML
+            send_resolved: true
+            message: '{{ template "pingboard.telegram" . }}'
+
+      - name: info-notifier
+        webhook_configs:
+          - url: http://inbox.monitoring.svc.cluster.local:8088/alert
+            send_resolved: true
+            max_alerts: 0
+        telegram_configs:
+          - bot_token: "__TELEGRAM_BOT_TOKEN__"
+            chat_id: __TELEGRAM_CHAT_ID__
+            parse_mode: HTML
+            send_resolved: true
+            disable_notifications: true
+            message: '{{ template "pingboard.telegram" . }}'
+
+  pingboard.tmpl: |
+    {{- define "pingboard.telegram" -}}
+    {{- if eq .Status "firing" }}🔥{{ else }}✅{{ end }} <b>{{ .Status | toUpper }}</b> · {{ .CommonLabels.service }}
+    {{ range .Alerts -}}
+    <b>{{ .Labels.alertname }}</b> [{{ .Labels.severity }} · {{ .Labels.component }}]
+    {{ .Annotations.summary }}
+    {{ if .Annotations.description }}<i>{{ .Annotations.description }}</i>{{ end }}
+    {{ end -}}
+    {{- end -}}
+
+  render.py: |
+    import os
+    import re
+    import shutil
+
+    os.makedirs("/etc/alertmanager/templates", exist_ok=True)
+    shutil.copyfile("/etc/alertmanager-tpl/templates/pingboard.tmpl", "/etc/alertmanager/templates/pingboard.tmpl")
+
+    with open("/etc/alertmanager-tpl/alertmanager.yml", "r", encoding="utf-8") as f:
+        cfg = f.read()
+
+    token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+
+    if token and chat_id:
+        cfg = cfg.replace("__TELEGRAM_BOT_TOKEN__", token).replace("__TELEGRAM_CHAT_ID__", chat_id)
+        print(f"Telegram receiver enabled for chat_id={chat_id}")
+    else:
+        cfg = re.sub(r"(?ms)^        telegram_configs:\n(?:          .*\n)+", "", cfg)
+        print("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set; falling back to inbox webhook only")
+
+    with open("/etc/alertmanager/alertmanager.yml", "w", encoding="utf-8") as f:
+        f.write(cfg)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: pingboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/part-of: pingboard
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      initContainers:
+        - name: render-config
+          image: python:3.12-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/etc/alertmanager-tpl/render.py"]
+          envFrom:
+            - secretRef:
+                name: alertmanager-telegram
+                optional: true
+          volumeMounts:
+            - name: config-tpl
+              mountPath: /etc/alertmanager-tpl
+            - name: config
+              mountPath: /etc/alertmanager
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.28.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --web.listen-address=:9093
+            # одиночная реплика: gossip-кластер не нужен, иначе в логах шум о недоступных пирах
+            - --cluster.listen-address=
+            - --web.external-url=http://localhost:9093
+            - --log.level=info
+          ports:
+            - name: http
+              containerPort: 9093
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: storage
+              mountPath: /alertmanager
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: config-tpl
+          configMap:
+            name: alertmanager-config
+            items:
+              - key: alertmanager.yml
+                path: alertmanager.yml
+              - key: pingboard.tmpl
+                path: templates/pingboard.tmpl
+              - key: render.py
+                path: render.py
+        - name: config
+          emptyDir: {}
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: pingboard
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http

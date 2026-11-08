@@ -1,0 +1,60 @@
+# Правила алертов для метрик сервиса Pingboard (группа pingboard-service).
+# Монтируются в vmalert как /etc/vmalert/rules/service-rules.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmalert-rules-service
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/part-of: pingboard
+data:
+  service-rules.yaml: |
+    groups:
+      - name: pingboard-service
+        interval: 15s
+        rules:
+          # A1. Сквозной пользовательский сценарий (readyz -> login -> CRUD мониторов).
+          # Пробер ходит каждые 5 с, поэтому 10% неудач за 3 минуты — это ~18 реальных
+          # неудачных сценариев, а не единичный сетевой сбой. Соответствует SLO probe E2E >= 99%.
+          - alert: PingboardProberE2EFailing
+            expr: avg_over_time(pingboard_prober_up[3m]) < 0.9
+            for: 2m
+            labels:
+              severity: critical
+              service: pingboard
+              component: prober
+              slo: prober_e2e
+            annotations:
+              summary: "Pingboard: сквозной сценарий пробера падает (успешно {{ $value | humanizePercentage }})"
+              description: >-
+                Доля успешных E2E-проверок ниже 90% за последние 3 минуты. Пробер каждые 5 секунд
+                проходит readyz -> login -> CRUD мониторов, поэтому это первый признак того, что
+                пользователь не может пользоваться сервисом целиком. Проверить: /metrics пробера
+                (step="e2e"), логи api, GET /readyz, доступность PostgreSQL.
+              runbook_url: "docs/runbooks/prober-e2e.md"
+              dashboard_url: "http://localhost:3001/d/pingboard-sli-slo-sla/pingboard-e28094-sli-slo-rbslo-and-tbslo-and-sla"
+
+          # A2. Fast burn бюджета ошибок: SLO доступности API = 99% => допустима доля 5xx 1%.
+          # >1% за 5 минут = скорость сжигания бюджета ~14.4x (классический fast-burn за 1 час).
+          # не должны влиять на пользовательский SLI.
+          - alert: PingboardApiErrorBudgetFastBurn
+            expr: |
+              sum(rate(http_requests_received_total{route!~"/metrics|/healthz|/readyz|/ops.*", status_code=~"5.."}[5m]))
+              /
+              clamp_min(sum(rate(http_requests_received_total{route!~"/metrics|/healthz|/readyz|/ops.*"}[5m])), 0.001)
+              > 0.01
+            for: 5m
+            labels:
+              severity: critical
+              service: pingboard
+              component: api
+              slo: api_availability
+            annotations:
+              summary: "Pingboard API: доля 5xx {{ $value | humanizePercentage }} > 1% (SLO 99%)"
+              description: >-
+                Пользовательские запросы к /api/* завершаются ошибкой 5xx чаще, чем в 1% случаев.
+                Смотреть логи api (Pingboard.Api), состояние PostgreSQL (pg_up, латентность запросов),
+                последние деплои. График: дашборд SLI/SLO, панель API Availability.
+              runbook_url: "docs/runbooks/api-5xx.md"
+              dashboard_url: "http://localhost:3001/d/pingboard-sli-slo-sla/pingboard-e28094-sli-slo-rbslo-and-tbslo-and-sla"

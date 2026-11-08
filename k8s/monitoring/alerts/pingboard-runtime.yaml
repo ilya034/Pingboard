@@ -1,0 +1,49 @@
+# Правила алертов на метрики рантайма .NET и фреймворка ASP.NET Core (группа pingboard-runtime).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmalert-rules-runtime
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/part-of: pingboard
+data:
+  runtime-rules.yaml: |
+    groups:
+      - name: pingboard-runtime
+        interval: 15s
+        rules:
+          # B1. Перегрузка пайплайна ASP.NET Core (метрика фреймворка, аналог http.server.requests.active):
+          # сколько запросов одновременно находятся в обработке. Baseline 0-2, при зависаниях/задержке растёт до сотен.
+          - alert: PingboardApiRequestsInFlightHigh
+            expr: http_requests_in_progress{container="api"} > 40
+            for: 3m
+            labels:
+              severity: warning
+              service: pingboard
+              component: api
+              slo: none
+            annotations:
+              summary: "Pingboard API: {{ $value }} запросов одновременно в обработке (> 40)"
+              description: >-
+                Пайплайн ASP.NET Core перегружен: запросы копятся в обработке дольше 3 минут.
+                Проверить p95 latency, dotnet_threadpool_queue_length, насыщение CPU/БД,
+                а также внешние вызовы, выполняемые внутри запроса.
+              runbook_url: "docs/runbooks/api-inflight.md"
+
+          # B2. Рестарт процесса (метрика рантайма process_start_time_seconds):
+          # позволяет отличить «починили» от «перезапустилось» и коррелировать с OOMKill / падением пода.
+          - alert: PingboardApiRestarted
+            expr: changes(process_start_time_seconds{container="api"}[15m]) > 0
+            for: 0m
+            labels:
+              severity: info
+              service: pingboard
+              component: api
+              slo: none
+            annotations:
+              summary: "Pingboard API: процесс перезапускался {{ $value }} раз(а) за 15 минут"
+              description: >-
+                Рестарт API за последние 15 минут. Проверить kubectl describe pod (Last State,
+                OOMKilled), kubectl get events, логи предыдущего контейнера (`kubectl logs --previous`).
+              runbook_url: "docs/runbooks/api-restart.md"
