@@ -134,7 +134,21 @@ public static class DependencyInjection
         db.Users.Add(user);
         db.Entry(user).Property(u => u.Id).CurrentValue = userId;
 
-        await db.SaveChangesAsync(ct);
-        return userId;
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return userId;
+        }
+        catch (DbUpdateException)
+        {
+            db.ChangeTracker.Clear();
+            var concurrent = await db.Users.AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId || u.Email == normalizedEmail, ct);
+
+            if (concurrent is not null && concurrent.Id == userId)
+                return concurrent.Id;
+
+            throw;
+        }
     }
 }

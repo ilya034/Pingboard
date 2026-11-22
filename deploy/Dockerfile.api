@@ -45,6 +45,7 @@ COPY --from=build /app ./
 USER $APP_UID
 
 EXPOSE 8080 9100 9101
-ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_URLS=http://+:8080 \
+    APP_VERSION=$APP_VERSION
 
 CMD ["dotnet", "Pingboard.Api.dll"]

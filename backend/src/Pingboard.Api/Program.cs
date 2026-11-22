@@ -2,6 +2,7 @@ using Pingboard.Api.Endpoints;
 using Pingboard.Api.Infrastructure;
 using Pingboard.Application;
 using Pingboard.Application.Abstractions;
+using Pingboard.Application.Observability;
 using Pingboard.Infrastructure;
 using Scalar.AspNetCore;
 
@@ -38,6 +39,9 @@ builder.Logging.AddJsonConsole(options =>
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
+var versionInfo = AppVersionInfo.FromConfiguration(builder.Configuration);
+builder.Services.AddSingleton(versionInfo);
+
 var chaosEnabled = builder.Environment.IsDevelopment()
                    || builder.Configuration.GetValue("Chaos:Enabled", false);
 if (chaosEnabled)
@@ -64,7 +68,8 @@ var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .WithOrigins(corsOrigins)
     .AllowAnyHeader()
-    .AllowAnyMethod()));
+    .AllowAnyMethod()
+    .WithExposedHeaders(AppVersionInfo.VersionHeaderName, AppVersionInfo.PodHeaderName)));
 
 // Таймаут корректного завершения работы приложения (graceful shutdown).
 builder.Services.Configure<HostOptions>(options => { options.ShutdownTimeout = TimeSpan.FromSeconds(10); });
@@ -119,9 +124,11 @@ if (seedOnStart)
         app.Logger.LogWarning(ex, "Seed demo user not completed");
     }
 
-// Инициализация синглтона бизнес-метрик при старте приложения.
+// Инициализация синглтона бизнес-метрик и метрики версии сборки при старте приложения.
 _ = app.Services.GetRequiredService<IPingboardMetrics>();
 _ = app.Services.GetService<ChaosSimulationState>();
+app.Services.GetRequiredService<PrometheusMetricsExporter>().RegisterBuildInfoMetric(versionInfo);
+app.Logger.LogInformation("Pingboard.Api starting: version={Version}, pod={Pod}", versionInfo.Version, versionInfo.PodName);
 
 app.UseHttpMetrics();
 app.UseApiErrorHandling();

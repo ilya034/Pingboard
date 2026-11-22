@@ -1,10 +1,12 @@
+using Pingboard.Api.Infrastructure;
 using Pingboard.Application.Abstractions;
 using Pingboard.Application.Observability;
 
 namespace Pingboard.Api.Endpoints;
 
 /// <summary>
-/// Регистрация конечных точек проверки состояния приложения (liveness /healthz, readiness /readyz и метрики /metrics).
+/// Регистрация конечных точек проверки состояния приложения (liveness /healthz, readiness /readyz,
+/// версии /api/version и метрик /metrics).
 /// Проверка доступности БД осуществляется через абстракцию <see cref="IDatabaseHealthProbe" />.
 /// </summary>
 public static class HealthEndpoints
@@ -16,13 +18,18 @@ public static class HealthEndpoints
 
     public static IEndpointRouteBuilder MapHealthEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }))
+        app.MapGet("/healthz", (AppVersionInfo info) =>
+                Results.Ok(new { status = "ok", version = info.Version, pod = info.PodName }))
             .WithName("Liveness")
             .AllowAnonymous()
             .WithTags("ops")
             .WithSummary("Liveness: process is alive");
 
-        app.MapGet("/readyz", async (IDatabaseHealthProbe database, ILoggerFactory loggerFactory, CancellationToken ct) =>
+        app.MapGet("/readyz", async (
+                IDatabaseHealthProbe database,
+                AppVersionInfo info,
+                ILoggerFactory loggerFactory,
+                CancellationToken ct) =>
             {
                 var logger = loggerFactory.CreateLogger("Pingboard.Api.Readiness");
 
@@ -31,7 +38,13 @@ public static class HealthEndpoints
                     if (await database.CanConnectAsync(ct))
                     {
                         LogTransition(logger, ready: true, error: null);
-                        return Results.Ok(new { status = "ready", database = "ok" });
+                        return Results.Ok(new
+                        {
+                            status = "ready",
+                            database = "ok",
+                            version = info.Version,
+                            pod = info.PodName
+                        });
                     }
 
                     LogTransition(logger, ready: false, error: null);
@@ -41,13 +54,32 @@ public static class HealthEndpoints
                     LogTransition(logger, ready: false, error: ex);
                 }
 
-                return Results.Json(new { status = "degraded", database = "unavailable" },
+                return Results.Json(
+                    new
+                    {
+                        status = "degraded",
+                        database = "unavailable",
+                        version = info.Version,
+                        pod = info.PodName
+                    },
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             })
             .WithName("Readiness")
             .AllowAnonymous()
             .WithTags("ops")
             .WithSummary("Readiness: SELECT 1 Postgres");
+
+        app.MapGet("/api/version", (AppVersionInfo info, TimeProvider timeProvider) =>
+                Results.Ok(new
+                {
+                    version = info.Version,
+                    pod = info.PodName,
+                    timestamp = timeProvider.GetUtcNow()
+                }))
+            .WithName("Version")
+            .AllowAnonymous()
+            .WithTags("ops")
+            .WithSummary("Application version and pod identity");
 
         app.MapGet("/metrics", (PrometheusMetricsExporter exporter) =>
                 Results.Text(exporter.Scrape(), PrometheusMetricsExporter.ContentType))
