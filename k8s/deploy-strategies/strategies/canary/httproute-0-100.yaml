@@ -1,0 +1,42 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: pingboard-routes
+  namespace: pingboard
+  labels:
+    app.kubernetes.io/name: pingboard-routes
+    app.kubernetes.io/part-of: pingboard
+spec:
+  parentRefs:
+    - name: pingboard-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+        - path:
+            type: PathPrefix
+            value: /ops
+        - path:
+            type: Exact
+            value: /healthz
+        - path:
+            type: Exact
+            value: /readyz
+        - path:
+            type: Exact
+            value: /metrics
+      backendRefs:
+        - name: api-v1
+          port: 8080
+          weight: 0
+        - name: api-v2
+          port: 8080
+          weight: 100
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: web
+          port: 80

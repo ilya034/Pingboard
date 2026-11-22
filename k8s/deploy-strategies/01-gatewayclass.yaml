@@ -1,0 +1,8 @@
+# GatewayClass для контроллера Envoy Gateway (по образцу demo_deploy/01-gateway.yaml).
+# Сам Gateway `pingboard-gateway` описан в k8s/manifests/07-gateway.yaml.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: eg
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
